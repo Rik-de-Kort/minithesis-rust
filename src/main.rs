@@ -29,7 +29,7 @@ impl std::fmt::Display for StopTest {
 }
 
 #[derive(Debug)]
-enum MinithesisError { 
+enum MTErr { 
 	Frozen,
 	StopTest
 }
@@ -67,16 +67,24 @@ struct TestCase {
 }
 
 impl TestCase {
-	fn make_choice<F: FnMut(&mut ChaCha8Rng) -> u64>(&mut self, n: u64, mut rnd_method: F) -> Result<u64, MinithesisError> {
+	fn make_choice<F: FnMut(&mut ChaCha8Rng) -> u64>(&mut self, n: u64, mut rnd_method: F) -> Result<u64, MTErr> {
 		match &self.status {
-			Some(s) => Err(MinithesisError::Frozen),
+			Some(s) => Err(MTErr::Frozen),
 			None => { 
 				if self.choices.len() >= self.max_size { 
 					Err(self.mark_status(Status::Overrun))
 				} else if self.choices.len() < self.prefix.len() {
+                    let choice = self.prefix[self.choices.len()];
+                    self.choices.push(choice);
 					Ok(self.prefix[self.choices.len()])
 				} else {
-					Ok(rnd_method(&mut self.random))
+                    let choice = rnd_method(&mut self.random);
+                    if choice > n { 
+                        Err(self.mark_status(Status::Invalid))
+                    } else {
+                        self.choices.push(choice);
+                        Ok(choice)
+                    }
 				}	
 			}
 		}
@@ -86,10 +94,46 @@ impl TestCase {
 		self.make_choice(n, |r: &mut ChaCha8Rng| r.gen_range(0, n)).unwrap()
 	}
 
-	fn mark_status(&mut self, status: Status) -> MinithesisError {
+    pub fn forced_choice(&mut self, n: u64) -> Result<u64, MTErr> {
+        match &self.status {
+            Some(s) => Err(MTErr::Frozen),
+            None => {
+                if self.choices.len() >= self.max_size {
+                    Err(self.mark_status(Status::Overrun))
+                } else {
+                    self.choices.push(n);
+                    Ok(n)
+                }
+            }
+        }
+    }
+
+    pub fn weighted(&mut self, p: f64) -> bool {
+        if p <= 0.0 {
+            self.forced_choice(0).unwrap();
+            false
+        } else if p >= 1.0 {
+            self.forced_choice(1).unwrap();
+            true
+        } else {
+            let result = self.make_choice(1, |r: &mut ChaCha8Rng| r.gen_range(0, 1)).unwrap();
+            match result {
+                0 => false,
+                _ => true
+            }
+        }
+    }
+
+    pub fn reject(&mut self) -> MTErr {
+        self.mark_status(Status::Invalid)
+    }
+
+
+
+	fn mark_status(&mut self, status: Status) -> MTErr {
 		match &self.status {
-			None => {self.status = Some(status); MinithesisError::StopTest}
-			Some(s) => MinithesisError::Frozen
+			None => {self.status = Some(status); MTErr::StopTest}
+			Some(s) => MTErr::Frozen
 		}
     }
 }
@@ -107,6 +151,7 @@ fn main() {
 		depth: 0
 	};
 	println!("{}", tc.choice(15));
+    println!("{}", tc.forced_choice(110).unwrap());
 
     println!("Hello, world!");
 }
