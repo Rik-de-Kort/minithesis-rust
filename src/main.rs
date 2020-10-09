@@ -1,21 +1,17 @@
-/// For this we define a test as a routine returning true or false. True for passing.
-use std::error::Error;
-use rand_chacha::ChaCha8Rng;
 use rand::prelude::*;
-
+use rand_chacha::ChaCha8Rng;
+use std::error::Error;
 
 #[derive(Debug)]
 struct Frozen;
 
 impl Error for Frozen {}
 
-
 impl std::fmt::Display for Frozen {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		write!(f, "Test case is frozen!")
-	}
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Test case is frozen!")
+    }
 }
-
 
 #[derive(Debug)]
 struct StopTest;
@@ -23,137 +19,226 @@ struct StopTest;
 impl Error for StopTest {}
 
 impl std::fmt::Display for StopTest {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		write!(f, "Stop test early")
-	}
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Stop test early")
+    }
 }
 
 #[derive(Debug)]
-enum MTErr { 
-	Frozen,
-	StopTest
+enum MTErr {
+    Frozen,
+    StopTest,
+}
+
+#[derive(Debug, PartialEq)]
+enum MTStatus {
+    Overrun,
+    Invalid,
+    Valid,
+    Interesting,
 }
 
 
-fn accept<T, U: Sized>(test: U) -> Option<Box<dyn Error>> {
-	None
-}
-
-struct TestingState<T: ?Sized, U> {
-	prefix: Vec<u8>,
-	max_examples: u32,
-	__test_function: Box<T>,
-	valid_test_cases: u32,
-	calls: u32,
-	result: Option<U>,  // TODO: figure out what U should be
-	test_is_trivial: bool
-}
-
-// #[derive(Clone, Copy)]
-enum Status {
-	Overrun,
-	Invalid,
-	Valid,
-	Interesting(u64),
-} 
-
+type RandomMethod = Box<dyn Fn(&mut ChaCha8Rng) -> u64>;
 struct TestCase {
-	prefix: Vec<u64>,
-	random: ChaCha8Rng,
-	max_size: usize,
-	choices: Vec<u64>,
-	status: Option<Status>,
-	depth: u64,
+    prefix: Vec<u64>,
+    random: ChaCha8Rng,
+    max_size: usize,
+    choices: Vec<u64>,
+    status: Option<MTStatus>,
+    // print_results: bool,
+    depth: u64,
+    // target_score: f64
 }
 
 impl TestCase {
-	fn make_choice<F: FnMut(&mut ChaCha8Rng) -> u64>(&mut self, n: u64, mut rnd_method: F) -> Result<u64, MTErr> {
-		match &self.status {
-			Some(s) => Err(MTErr::Frozen),
-			None => { 
-				if self.choices.len() >= self.max_size { 
-					Err(self.mark_status(Status::Overrun))
-				} else if self.choices.len() < self.prefix.len() {
-                    let choice = self.prefix[self.choices.len()];
-                    self.choices.push(choice);
-					Ok(self.prefix[self.choices.len()])
-				} else {
-                    let choice = rnd_method(&mut self.random);
-                    if choice > n { 
-                        Err(self.mark_status(Status::Invalid))
-                    } else {
-                        self.choices.push(choice);
-                        Ok(choice)
-                    }
-				}	
-			}
-		}
-	}
+    fn new() -> TestCase {
+        TestCase {
+            prefix: vec![],
+            random: ChaCha8Rng::seed_from_u64(0),  // Todo: fix up proper randomness
+            max_size: 10000,
+            choices: vec![],
+            status: None,
+            depth: 0
+        }
+    }
 
-	pub fn choice(&mut self, n: u64) -> u64 {
-		self.make_choice(n, |r: &mut ChaCha8Rng| r.gen_range(0, n)).unwrap()
-	}
+    /// Return an integer in the range [0, n]
+    fn choice(&mut self, n: u64) -> Result<u64, MTErr> {
+        self.make_choice(n, Box::new(move |rng| rng.gen_range(0, n+1)))
+    }
 
-    pub fn forced_choice(&mut self, n: u64) -> Result<u64, MTErr> {
-        match &self.status {
-            Some(s) => Err(MTErr::Frozen),
+    /// Return 1 with probability p, 0 otherwise. 
+    fn weighted(&mut self, p: f64) -> Result<u64, MTErr> {
+        match self.random.gen_bool(p) {
+            true => { 
+                self.choices.push(1);
+                Ok(1)
+            },
+            false => {
+                self.choices.push(0);
+                Ok(0)
+            }
+        }
+        
+    }
+
+    /// Insert a fake choice in the choice sequence
+    fn forced_choice(&mut self, n: u64) -> Result<u64, MTErr> {
+        match self.status {
             None => {
                 if self.choices.len() >= self.max_size {
-                    Err(self.mark_status(Status::Overrun))
+                    self.mark_status(MTStatus::Overrun)
                 } else {
                     self.choices.push(n);
                     Ok(n)
                 }
+            },
+            Some(_) => Err(MTErr::Frozen)
+        }
+
+    }
+
+    /// Mark this test case as invalid
+    fn reject(&mut self) -> Result<u64, MTErr> {
+        self.mark_status(MTStatus::Invalid)
+    }
+
+    /// Return a possible value
+    fn any<T>(&mut self, p: Possibility<T>) -> Result<T, MTErr> {
+        match p(self) {
+            Ok(val) => {
+                self.depth += 1;
+                Ok(val)
+            },
+            Err(e) => Err(e)
+        }
+
+
+    }
+
+    // Note that mark_status never returns u64
+    fn mark_status(&mut self, status: MTStatus) -> Result<u64, MTErr> {
+        match self.status {
+            None => {
+                self.status = Some(status);
+                Err(MTErr::StopTest)
+            },
+            Some(_) => {
+                Err(MTErr::Frozen)
             }
         }
     }
-
-    pub fn weighted(&mut self, p: f64) -> bool {
-        if p <= 0.0 {
-            self.forced_choice(0).unwrap();
-            false
-        } else if p >= 1.0 {
-            self.forced_choice(1).unwrap();
-            true
-        } else {
-            let result = self.make_choice(1, |r: &mut ChaCha8Rng| r.gen_range(0, 1)).unwrap();
-            match result {
-                0 => false,
-                _ => true
-            }
+    
+    fn make_choice(&mut self, n: u64, rnd_method: RandomMethod) -> Result<u64, MTErr> {
+        match self.status {
+            None => {
+                if self.choices.len() >= self.max_size { 
+                    self.mark_status(MTStatus::Overrun)
+                } else if self.choices.len() < self.prefix.len() {
+                    let result = self.prefix[self.choices.len()];
+                    self.choices.push(result);
+                    Ok(result)
+                } else {
+                    let result = rnd_method(&mut self.random);
+                    if result > n {
+                        self.mark_status(MTStatus::Invalid)
+                    } else {
+                        self.choices.push(result);
+                        Ok(result)
+                    }
+                }
+            },
+            Some(_) => Err(MTErr::Frozen)
         }
-    }
-
-    pub fn reject(&mut self) -> MTErr {
-        self.mark_status(Status::Invalid)
-    }
-
-
-
-	fn mark_status(&mut self, status: Status) -> MTErr {
-		match &self.status {
-			None => {self.status = Some(status); MTErr::StopTest}
-			Some(s) => MTErr::Frozen
-		}
     }
 }
 
 
+/// Represents some range of values that might be used in a test, that can be requested from a
+/// TestCase.
+///
+/// Pass one of these to TestCase.any to get a concrete value
+type Possibility<T> = Box<dyn Fn(&mut TestCase) -> Result<T, MTErr>>;
+
+use std::convert::TryInto;
+
+fn integers(m: i64, n: i64) -> Possibility<i64> {
+    let t: u64 = (n-m).try_into().unwrap();
+    let result = move |tc: &mut TestCase| {
+            let c: i64 = tc.choice(t)?.try_into().unwrap();
+            Ok(m+c)
+        };
+    Box::new(result)
+}
+
+
+/// For this we define a test as a routine returning true or false. 
+type PropertyTest<T> = Box<dyn Fn(T) -> bool>;
+
+enum TestResult<T> {
+    Pass,
+    Unsatisfiable,
+    Failing(T)
+}
+
+fn run_test<T>(test: PropertyTest<T>, max_examples: u64, random: ChaCha8Rng) -> TestResult<T> {
+    TestResult::<T>::Pass
+}
+
+fn example(x: i64) -> bool {
+    if x % 2 == 0 { false } else { true }
+}
+
+fn sort_key<T>(x: T) -> u64 { 0 }
+
+struct TestingState {
+    random: ChaCha8Rng,
+    max_examples: usize,
+    test_function: PropertyTest<TestCase>,
+    valid_test_cases: usize,
+    calls: usize,
+    result: Option<Vec<u64>>,
+    test_is_trivial: bool,
+}
+
+impl TestingState {
+    fn test_function(&mut self, test_case: TestCase) -> Result<bool, MTErr> {
+        match (self.test_function)(test_case) {
+            true => {}
+            false => {}
+        }
+
+        if test_case.status == None {
+            test_case.status = Some(Status::Valid)
+        }
+        self.calls += 1;
+
+        let status = test_case.status.unwrap();
+
+        if (status == MTStatus.Invalid || status == MTStatus.Valid || status == MTStatus.Interesting) && test_case.choices.len() == 0 {
+            self.test_is_trivial = true;
+        }
+        if (status == MTStatus.Valid || status == MTStatus.Interesting) {
+            self.valid_test_cases += 1;
+            
+            // Todo: implement targeting
+        }
+        if test_case.status == MTStatus.Interesting {
+            if self.result == None or sort_key(self.result.unwrap()) > sort_key(test_case.choices) {
+                self.result = Some(test_case.choices)
+            }
+        }
+
+        Ok(true)
+}
 
 
 fn main() {
-	let mut tc = TestCase{
-		prefix: vec![], 
-		random: ChaCha8Rng::seed_from_u64(0),
-		max_size: 10000,
-		choices: vec![],
-		status: None,
-		depth: 0
-	};
-	println!("{}", tc.choice(15));
-    println!("{}", tc.forced_choice(110).unwrap());
-
-    println!("Hello, world!");
+    fn foo() -> bool {true};
+    println!("Hello, world! {}", foo());
+    run_test(Box::new(example), 10, ChaCha8Rng::seed_from_u64(0));
+    let mut tc = TestCase::new();
+    let p = integers(0, 10);
+    println!("Selected integer: {}", tc.any(p).unwrap());
 }
-
-
