@@ -68,8 +68,8 @@ impl TestCase {
     }
 
     /// Return a possible value
-    fn any<T>(&mut self, p: &Possibility<T>) -> Result<T, MTErr> {
-        match p(self) {
+    fn any<T>(&mut self, p: &impl Possibility<T>) -> Result<T, MTErr> {
+        match p.produce(self) {
             Ok(val) => {
                 self.depth += 1;
                 Ok(val)
@@ -102,82 +102,69 @@ impl TestCase {
 
 /// Represents some range of values that might be used in a test, that can be requested from a
 /// TestCase.
-///
-/// Pass one of these to TestCase.any to get a concrete value
-type Possibility<T> = Box<dyn Fn(&mut TestCase) -> Result<T, MTErr>>;
-
-use std::convert::TryInto;
-
-fn map<T: 'static, U: 'static>(initial: Possibility<T>, f: impl Fn(T)->U + 'static) -> Possibility<U> {
-    Box::new(move |tc: &mut TestCase| {
-        Ok(f(tc.any(&initial)?))
-    })
+trait Possibility<T> {
+    fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr>;
 }
 
-fn bind<T: 'static, U: 'static>(initial: Possibility<T>, f: impl Fn(T)->Possibility<U> + 'static) -> Possibility<U> {
-    Box::new(move |tc: &mut TestCase| {
-        let mapped = f(tc.any(&initial)?);
-        Ok(tc.any(&mapped)?)
-    })
-}
-
-fn satisfying<T: 'static>(initial: Possibility<T>, f: impl Fn(&T)->bool + 'static) -> Possibility<T> {
-    Box::new(move |tc: &mut TestCase| {
-        for _ in (0..3) {
-            let candidate = tc.any(&initial)?;
-            if f(&candidate) { return Ok(candidate); }
-        }
-        Err(tc.reject())
-    })
-}
-
-fn integers(m: i64, n: i64) -> Possibility<i64> {
-    let t: u64 = (n - m).try_into().unwrap();
-    let produce = move |tc: &mut TestCase| {
-        let c: i64 = tc.choice(t)?.try_into().unwrap();
-        Ok(m + c)
-    };
-    Box::new(produce)
-}
-
-fn vecs<T: 'static>(
-    elements: Possibility<T>,
+struct Vectors<U, T: Possibility<U>> {
+    elements: T,
     min_size: usize,
     max_size: usize,
-) -> Possibility<Vec<T>> {
-    let produce = move |tc: &mut TestCase| {
+    phantom: std::marker::PhantomData<U>, // Required for type check
+}
+
+impl<U, T: Possibility<U>> Vectors<U, T> {
+    fn new(elements: T, min_size: usize, max_size: usize) -> Self {
+        Vectors {
+            elements: elements,
+            min_size: min_size,
+            max_size: max_size,
+            phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<U, T: Possibility<U>> Possibility<Vec<U>> for Vectors<U, T> {
+    fn produce(&self, tc: &mut TestCase) -> Result<Vec<U>, MTErr> {
         let mut result = vec![];
         loop {
-            if result.len() < min_size {
+            if result.len() < self.min_size {
                 tc.det_choice(1)?;
-            } else if result.len() + 1 >= max_size {
+            } else if result.len() + 1 >= self.max_size {
                 tc.det_choice(0)?;
                 break;
             } else if tc.weighted(0.9)? == 0 {
                 break;
             }
-            result.push(tc.any(&elements)?);
+            result.push(tc.any(&self.elements)?);
         }
         Ok(result)
-    };
-    Box::new(produce)
+    }
 }
 
-fn just<T: std::clone::Clone + 'static>(value: T) -> Possibility<T> {
-    Box::new(move |_tc: &mut TestCase| { Ok(value.clone()) })
+struct Integers {
+    minimum: i64,
+    maximum: i64,
+    range: u64,
 }
 
-fn nothing<T>() -> Possibility<T> {
-    Box::new(|tc: &mut TestCase| { Err(tc.reject()) })
+use std::convert::TryInto;
+impl Integers {
+    fn new(minimum: i64, maximum: i64) -> Self {
+        Integers {
+            minimum: minimum,
+            maximum: maximum,
+            range: (maximum - minimum).try_into().unwrap(),
+        }
+    }
 }
 
-fn mix_of<T: 'static>(first: Possibility<T>, second: Possibility<T>) -> Possibility<T> {
-    Box::new(move |tc: &mut TestCase| {
-        if tc.choice(1)? == 0 { tc.any(&first) } else { tc.any(&second) }
-    })
+impl Possibility<i64> for Integers {
+    fn produce(&self, tc: &mut TestCase) -> Result<i64, MTErr> {
+        let offset: i64 = tc.choice(self.range)?.try_into().unwrap();
+        Ok(self.minimum + offset)
+    }
 }
-
-
 
 /// We are seeing if things are interesting (true or false)
 type InterestingTest<T> = Box<dyn Fn(&mut T) -> bool>;
@@ -255,7 +242,9 @@ impl TestingState {
 
 /// Note that we invert the relationship: true means "interesting"
 fn example_test(tc: &mut TestCase) -> bool {
-    let ls: Vec<i64> = tc.any(&vecs(integers(95, 105), 9, 11)).unwrap();
+    let ls: Vec<i64> = tc
+        .any(&Vectors::new(Integers::new(95, 105), 9, 11))
+        .unwrap();
     println!("running with list {:?}", ls);
     ls.iter().sum::<i64>() > 1000
 }
