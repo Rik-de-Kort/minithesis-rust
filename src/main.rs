@@ -284,6 +284,23 @@ struct TestState {
 const BUFFER_SIZE: usize = 8 * 1024;
 
 impl TestState {
+    pub fn new(
+        random: ThreadRng,
+        test_function: InterestingTest<TestCase>,
+        max_examples: usize,
+    ) -> TestState {
+        TestState {
+            random,
+            is_interesting: test_function,
+            max_examples,
+            valid_test_cases: 0,
+            calls: 0,
+            result: None,
+            best_scoring: None,
+            test_is_trivial: false,
+        }
+    }
+
     fn test_function(&mut self, mut test_case: TestCase) {
         if (self.is_interesting)(&mut test_case) {
             test_case.status = Some(MTStatus::Interesting);
@@ -353,16 +370,7 @@ fn example_test(tc: &mut TestCase) -> bool {
 }
 
 fn main() {
-    let mut ts = TestState {
-        random: thread_rng(),
-        is_interesting: Box::new(example_test),
-        max_examples: 10,
-        valid_test_cases: 0,
-        calls: 0,
-        result: None,
-        best_scoring: None,
-        test_is_trivial: false,
-    };
+    let mut ts = TestState::new(thread_rng(), Box::new(example_test), 10);
     ts.run();
     println!("Test result {:?}", ts.result);
 }
