@@ -67,15 +67,21 @@ impl TestCase {
         self.mark_status(MTStatus::Invalid)
     }
 
+    /// If this precondition is not met, abort the test and mark this test case as invalid
+    fn assume(&mut self, precondition: bool) -> Option<MTErr> {
+        if !precondition {
+            Some(self.reject())
+        } else {
+            None
+        }
+    }
+
     /// Return a possible value
     fn any<T>(&mut self, p: &impl Possibility<T>) -> Result<T, MTErr> {
-        match p.produce(self) {
-            Ok(val) => {
-                self.depth += 1;
-                Ok(val)
-            }
-            Err(e) => Err(e),
-        }
+        self.depth += 1;
+        let result = p.produce(self);
+        self.depth -= 1;
+        result
     }
 
     // Note that mark_status never returns u64
@@ -89,7 +95,7 @@ impl TestCase {
         }
     }
 
-    // Return an integer in the range [0, n]
+    /// Return an integer in the range [0, n]
     fn choice(&mut self, n: u64) -> Result<u64, MTErr> {
         if self.choices.len() < self.prefix.len() {
             self.det_choice(self.prefix[self.choices.len()])
@@ -104,9 +110,9 @@ mod data {
     /// Represents some range of values that might be used in a test, that can be requested from a
     /// TestCase.
     use crate::*;
+    use std::clone::Clone;
     use std::convert::TryInto;
     use std::marker::{PhantomData, Sized};
-    use std::clone::Clone;
 
     pub trait Possibility<T>: Sized {
         fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr>;
@@ -284,7 +290,26 @@ struct TestState {
     test_is_trivial: bool,
 }
 
+const BUFFER_SIZE: usize = 8 * 1024;
+
 impl TestState {
+    pub fn new(
+        random: ThreadRng,
+        test_function: InterestingTest<TestCase>,
+        max_examples: usize,
+    ) -> TestState {
+        TestState {
+            random,
+            is_interesting: test_function,
+            max_examples,
+            valid_test_cases: 0,
+            calls: 0,
+            result: None,
+            best_scoring: None,
+            test_is_trivial: false,
+        }
+    }
+
     fn test_function(&mut self, mut test_case: TestCase) {
         if (self.is_interesting)(&mut test_case) {
             test_case.status = Some(MTStatus::Interesting);
@@ -295,7 +320,7 @@ impl TestState {
         self.calls += 1;
 
         match test_case.status {
-            None => panic!("Didn't expect test case status to be empty!"),
+            None => unreachable!("Didn't expect test case status to be empty!"),
             Some(MTStatus::Invalid) => {
                 self.test_is_trivial = test_case.choices.is_empty();
             }
@@ -333,7 +358,7 @@ impl TestState {
         while self.should_keep_generating()
             & ((self.best_scoring == None) || self.valid_test_cases <= self.max_examples / 2)
         {
-            self.test_function(TestCase::new(vec![], self.random, 8 * 1024));
+            self.test_function(TestCase::new(vec![], self.random, BUFFER_SIZE));
         }
     }
 
@@ -354,16 +379,7 @@ fn example_test(tc: &mut TestCase) -> bool {
 }
 
 fn main() {
-    let mut ts = TestState {
-        random: thread_rng(),
-        is_interesting: Box::new(example_test),
-        max_examples: 10,
-        valid_test_cases: 0,
-        calls: 0,
-        result: None,
-        best_scoring: None,
-        test_is_trivial: false,
-    };
+    let mut ts = TestState::new(thread_rng(), Box::new(example_test), 10);
     ts.run();
     println!("Test result {:?}", ts.result);
 }
