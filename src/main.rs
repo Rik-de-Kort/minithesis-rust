@@ -67,6 +67,15 @@ impl TestCase {
         self.mark_status(MTStatus::Invalid)
     }
 
+    /// If this precondition is not met, abort the test and mark this test case as invalid
+    fn assume(&mut self, precondition: bool) -> Option<MTErr> {
+        if !precondition {
+            Some(self.reject())
+        } else {
+            None
+        }
+    }
+
     /// Return a possible value
     fn any<T>(&mut self, p: &impl Possibility<T>) -> Result<T, MTErr> {
         p.produce(self).map(|val| {
