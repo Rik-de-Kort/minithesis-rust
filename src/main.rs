@@ -294,7 +294,7 @@ impl TestState {
         self.calls += 1;
 
         match test_case.status {
-            None => panic!("Didn't expect test case status to be empty!"),
+            None => unreachable!("Didn't expect test case status to be empty!"),
             Some(MTStatus::Invalid) => {
                 self.test_is_trivial = test_case.choices.is_empty();
             }
