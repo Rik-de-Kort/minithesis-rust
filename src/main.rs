@@ -69,13 +69,10 @@ impl TestCase {
 
     /// Return a possible value
     fn any<T>(&mut self, p: &impl Possibility<T>) -> Result<T, MTErr> {
-        match p.produce(self) {
-            Ok(val) => {
-                self.depth += 1;
-                Ok(val)
-            }
-            Err(e) => Err(e),
-        }
+        p.produce(self).map(|val| {
+            self.depth += 1;
+            val
+        })
     }
 
     // Note that mark_status never returns u64
