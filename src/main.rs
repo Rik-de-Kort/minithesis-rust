@@ -284,6 +284,8 @@ struct TestState {
     test_is_trivial: bool,
 }
 
+const BUFFER_SIZE: usize = 8 * 1024;
+
 impl TestState {
     fn test_function(&mut self, mut test_case: TestCase) {
         if (self.is_interesting)(&mut test_case) {
@@ -333,7 +335,7 @@ impl TestState {
         while self.should_keep_generating()
             & ((self.best_scoring == None) || self.valid_test_cases <= self.max_examples / 2)
         {
-            self.test_function(TestCase::new(vec![], self.random, 8 * 1024));
+            self.test_function(TestCase::new(vec![], self.random, BUFFER_SIZE));
         }
     }
 
