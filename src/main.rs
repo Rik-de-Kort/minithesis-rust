@@ -86,7 +86,7 @@ impl TestCase {
         }
     }
 
-    // Return an integer in the range [0, n]
+    /// Return an integer in the range [0, n]
     fn choice(&mut self, n: u64) -> Result<u64, MTErr> {
         if self.choices.len() < self.prefix.len() {
             self.det_choice(self.prefix[self.choices.len()])
