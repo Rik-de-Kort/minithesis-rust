@@ -37,6 +37,17 @@ impl TestCase {
         }
     }
 
+    fn for_choices(prefix: Vec<u64>) -> TestCase {
+        TestCase {
+            prefix,
+            random: thread_rng(),
+            max_size: BUFFER_SIZE,
+            choices: vec![],
+            status: None,
+            depth: 0,
+        }
+    }
+
     /// Insert a definite choice in the choice sequence
     /// N.B. All integrity checks happen here!
     fn det_choice(&mut self, n: u64) -> Result<u64, MTErr> {
@@ -310,7 +321,7 @@ impl TestState {
         }
     }
 
-    fn test_function(&mut self, mut test_case: TestCase) {
+    fn test_function(&mut self, mut test_case: &mut TestCase) {
         if (self.is_interesting)(&mut test_case) {
             test_case.status = Some(MTStatus::Interesting);
         } else if test_case.status == None {
@@ -333,7 +344,7 @@ impl TestState {
                 self.valid_test_cases += 1;
 
                 if self.result == None || self.result.as_ref().unwrap() > &test_case.choices {
-                    self.result = Some(test_case.choices)
+                    self.result = Some(test_case.choices.clone())
                 }
             }
             Some(MTStatus::Overrun) => {
@@ -358,13 +369,39 @@ impl TestState {
         while self.should_keep_generating()
             & ((self.best_scoring == None) || self.valid_test_cases <= self.max_examples / 2)
         {
-            self.test_function(TestCase::new(vec![], self.random, BUFFER_SIZE));
+            self.test_function(&mut TestCase::new(vec![], self.random, BUFFER_SIZE));
         }
     }
 
+
     fn shrink(&mut self) {
-        if self.result == None {
-            return;
+        println!("shrinking");
+        match &self.result {
+            None => (),
+            Some(data) => {
+                let result = data.clone();
+                let mut prev = Vec::with_capacity(result.len());
+                while prev != result {
+                    prev = result.clone();
+
+                    // Deleting choices we made in chunks
+                    for k in &[8, 4, 2, 1] {
+                        let mut i = result.len();
+                        while i > 0 {
+                            let start = i.min(result.len()).max(0);
+                            let end = 0.max(i+k).min(result.len()-1);
+
+                            let mut attempt = result[..start].to_vec();
+                            attempt.extend(&result[end..]);
+                            
+                            let mut tc = &mut TestCase::for_choices(attempt)
+                            self.test_function(&mut tc);
+
+                            i = (i-1).min(result.len()-1);
+                        }
+                    }
+                }
+            }
         }
     }
 }
