@@ -14,6 +14,7 @@ enum MTStatus {
     Interesting,
 }
 
+#[derive(Debug)]
 pub struct TestCase {
     prefix: Vec<u64>,
     random: ThreadRng,
@@ -373,9 +374,19 @@ impl TestState {
         }
     }
 
+    fn consider(&mut self, choices: &Vec<u64>) -> bool {
+        if *choices == *self.result.as_ref().unwrap_or(&vec![]) {
+            true
+        } else {
+            let mut tc = TestCase::for_choices(choices.to_vec());
+            self.test_function(&mut tc);
+            tc.status == Some(MTStatus::Interesting)
+        }
+    }
 
     fn shrink(&mut self) {
         println!("shrinking");
+
         match &self.result {
             None => (),
             Some(data) => {
@@ -386,24 +397,70 @@ impl TestState {
 
                     // Deleting choices we made in chunks
                     for k in &[8, 4, 2, 1] {
-                        let mut i = result.len();
+                        let mut i = result.len() - 1;
                         while i > 0 {
-                            let start = i.min(result.len()).max(0);
-                            let end = 0.max(i+k).min(result.len()-1);
+                            // Todo: this never checks index 0
+                            let start = i.min(result.len() - 1).max(0);
+                            let end = 0.max(i + k).min(result.len() - 1);
 
                             let mut attempt = result[..start].to_vec();
                             attempt.extend(&result[end..]);
-                            
-                            let mut tc = &mut TestCase::for_choices(attempt)
-                            self.test_function(&mut tc);
 
-                            i = (i-1).min(result.len()-1);
+                            if !self.consider(&attempt) && (attempt[i - 1] > 0) {
+                                attempt[i - 1] -= 1;
+                                if self.consider(&attempt) {
+                                    i += 1;
+                                }
+                            }
+
+                            i = (i - 1).min(result.len() - 1);
+                        }
+                    }
+
+                    // Replacing blocks by zeroes
+                    for k in &[8, 4, 2, 1] {
+                        let mut i = result.len() - 1;
+                        while i > 0 {
+                            // Todo: improve algorithm, prove that taken can't be 0
+                            let start = i.min(result.len() - 1).max(0);
+                            let end = 0.max(i + k).min(result.len() - 1);
+                            let taken = end - start;
+
+                            if taken == 0 {
+                                i -= 1;
+                                continue;
+                            }
+                            let mut attempt = result[..start].to_vec();
+                            attempt.extend(&vec![0; *k]);
+                            attempt.extend(&result[end..]);
+
+                            if self.consider(&attempt) {
+                                i = if i > taken { i - taken } else { 0 }
+                            } else {
+                                i -= 1;
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+fn bin_search_down<F: Fn(u64) -> bool>(mut low: u64, mut high: u64, f: F) -> u64 {
+    if f(low) {
+        return low;
+    }
+
+    while low + 1 < high {
+        let mid = low + (high - low) / 2;
+        if f(mid) {
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+    high
 }
 
 /// Note that we invert the relationship: true means "interesting"
