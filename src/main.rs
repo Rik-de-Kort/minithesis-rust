@@ -40,9 +40,9 @@ impl TestCase {
 
     fn for_choices(prefix: Vec<u64>) -> TestCase {
         TestCase {
+            max_size: prefix.len(),
             prefix,
             random: thread_rng(),
-            max_size: BUFFER_SIZE,
             choices: vec![],
             status: None,
             depth: 0,
@@ -348,9 +348,7 @@ impl TestState {
                     self.result = Some(test_case.choices.clone())
                 }
             }
-            Some(MTStatus::Overrun) => {
-                panic!("Test case length overrun!");
-            }
+            Some(MTStatus::Overrun) => {}
         }
     }
 
@@ -385,33 +383,43 @@ impl TestState {
     }
 
     fn shrink_remove(&mut self, attempt: &Vec<u64>, k: usize) -> Option<Vec<u64>> {
-        if k > attempt.len() { return None; }
+        if k > attempt.len() {
+            return None;
+        }
 
         // Generate all valid removals (don't worry, it's lazy!)
-        let valid = (k..attempt.len()-1).map(|j| (j-k, j)).rev();
+        let valid = (k..attempt.len() - 1).map(|j| (j - k, j)).rev();
         for (x, y) in valid {
             let mut new = [&attempt[..x], &attempt[y..]].concat();
-            
-            if self.consider(&new) { 
-                return Some(new)
-            } else if x > 0 && new[x-1] > 0 {  // Short-circuit prevents overflow
-                new[x-1] -= 1;
-                if self.consider(&new){ return Some(new); };
+
+            if self.consider(&new) {
+                return Some(new);
+            } else if x > 0 && new[x - 1] > 0 {
+                // Short-circuit prevents overflow
+                new[x - 1] -= 1;
+                if self.consider(&new) {
+                    return Some(new);
+                };
             }
         }
         None
     }
 
     fn shrink_zeroes(&mut self, attempt: &Vec<u64>, k: usize) -> Option<Vec<u64>> {
-        if k > attempt.len() { return None; }
-        let valid = (k..attempt.len()-1).map(|j| (j-k, j)).rev();
+        if k > attempt.len() {
+            return None;
+        }
+        let valid = (k..attempt.len() - 1).map(|j| (j - k, j)).rev();
         for (x, y) in valid {
-            if attempt[x..y].iter().all(|i| *i == 0) { continue; }
-            let mut new = [&attempt[..x], &vec![0; y-x],  &attempt[y..]].concat();
-            if self.consider(&new) { return Some(new) }
+            if attempt[x..y].iter().all(|i| *i == 0) {
+                continue;
+            }
+            let mut new = [&attempt[..x], &vec![0; y - x], &attempt[y..]].concat();
+            if self.consider(&new) {
+                return Some(new);
+            }
         }
         None
-
     }
 
     fn shrink(&mut self) {
@@ -435,13 +443,15 @@ impl TestState {
                     }
 
                     // Replacing blocks by zeroes
-                    for k in &[8, 4, 2, 1] {
+                    for k in &[8, 4, 2] {
                         while let Some(new) = self.shrink_zeroes(&attempt, *k) {
                             attempt = new;
                             improved = true;
                         }
                     }
-                    if !improved { println!("not improved, exiting, {:?}", attempt); };
+                    if !improved {
+                        println!("not improved, exiting, {:?}", attempt);
+                    };
                 }
                 self.result = Some(attempt);
             }
@@ -467,21 +477,16 @@ fn bin_search_down<F: Fn(u64) -> bool>(mut low: u64, mut high: u64, f: F) -> u64
 
 /// Note that we invert the relationship: true means "interesting"
 fn example_test(tc: &mut TestCase) -> bool {
-    let ls: Vec<i64> = tc
-        .any(&data::Vectors::new(data::Integers::new(95, 105), 9, 11))
-        .unwrap();
+    let ls = tc.any(&data::Vectors::new(data::Integers::new(95, 105), 9, 11));
     println!("running with list {:?}", ls);
-    ls.iter().sum::<i64>() > 1000
+    match ls {
+        Ok(list) => list.iter().sum::<i64>() > 1000,
+        Err(_) => false,
+    }
 }
 
 fn main() {
     let mut ts = TestState::new(thread_rng(), Box::new(example_test), 10);
     ts.run();
     println!("Test result {:?}", ts.result);
-
-    let mut tc = TestCase::for_choices(vec![7, 0]);
-    let ls: Vec<i64> = tc
-        .any(&data::Vectors::new(data::Integers::new(95, 105), 9, 11))
-        .unwrap();
-    println!("running with list {:?}", ls);
 }
