@@ -213,6 +213,13 @@ mod data {
         }
     }
 
+    impl Possibility<i64> for Integers {
+        fn produce(&self, tc: &mut TestCase) -> Result<i64, MTErr> {
+            let offset: i64 = tc.choice(self.range)?.try_into().unwrap();
+            Ok(self.minimum + offset)
+        }
+    }
+
     pub struct Vectors<U, T: Possibility<U>> {
         elements: T,
         min_size: usize,
@@ -245,13 +252,6 @@ mod data {
                 result.push(tc.any(&self.elements)?);
             }
             Ok(result)
-        }
-    }
-
-    impl Possibility<i64> for Integers {
-        fn produce(&self, tc: &mut TestCase) -> Result<i64, MTErr> {
-            let offset: i64 = tc.choice(self.range)?.try_into().unwrap();
-            Ok(self.minimum + offset)
         }
     }
 
@@ -344,7 +344,7 @@ impl TestState {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
 
-                if self.result == None || self.result.as_ref().unwrap() > &test_case.choices {
+                if self.result == None || (*self.result.as_ref().unwrap() > test_case.choices) {
                     self.result = Some(test_case.choices.clone())
                 }
             }
@@ -384,6 +384,36 @@ impl TestState {
         }
     }
 
+    fn shrink_remove(&mut self, attempt: &Vec<u64>, k: usize) -> Option<Vec<u64>> {
+        if k > attempt.len() { return None; }
+
+        // Generate all valid removals (don't worry, it's lazy!)
+        let valid = (k..attempt.len()-1).map(|j| (j-k, j)).rev();
+        for (x, y) in valid {
+            let mut new = [&attempt[..x], &attempt[y..]].concat();
+            
+            if self.consider(&new) { 
+                return Some(new)
+            } else if x > 0 && new[x-1] > 0 {  // Short-circuit prevents overflow
+                new[x-1] -= 1;
+                if self.consider(&new){ return Some(new); };
+            }
+        }
+        None
+    }
+
+    fn shrink_zeroes(&mut self, attempt: &Vec<u64>, k: usize) -> Option<Vec<u64>> {
+        if k > attempt.len() { return None; }
+        let valid = (k..attempt.len()-1).map(|j| (j-k, j)).rev();
+        for (x, y) in valid {
+            if attempt[x..y].iter().all(|i| *i == 0) { continue; }
+            let mut new = [&attempt[..x], &vec![0; y-x],  &attempt[y..]].concat();
+            if self.consider(&new) { return Some(new) }
+        }
+        None
+
+    }
+
     fn shrink(&mut self) {
         println!("shrinking");
 
@@ -391,57 +421,29 @@ impl TestState {
             None => (),
             Some(data) => {
                 let result = data.clone();
-                let mut prev = Vec::with_capacity(result.len());
-                while prev != result {
-                    prev = result.clone();
+                let mut attempt = result.clone();
+                let mut improved = true;
+                while improved {
+                    improved = false;
 
                     // Deleting choices we made in chunks
                     for k in &[8, 4, 2, 1] {
-                        let mut i = result.len() - 1;
-                        while i > 0 {
-                            // Todo: this never checks index 0
-                            let start = i.min(result.len() - 1).max(0);
-                            let end = 0.max(i + k).min(result.len() - 1);
-
-                            let mut attempt = result[..start].to_vec();
-                            attempt.extend(&result[end..]);
-
-                            if !self.consider(&attempt) && (attempt[i - 1] > 0) {
-                                attempt[i - 1] -= 1;
-                                if self.consider(&attempt) {
-                                    i += 1;
-                                }
-                            }
-
-                            i = (i - 1).min(result.len() - 1);
+                        while let Some(new) = self.shrink_remove(&attempt, *k) {
+                            attempt = new;
+                            improved = true;
                         }
                     }
 
                     // Replacing blocks by zeroes
                     for k in &[8, 4, 2, 1] {
-                        let mut i = result.len() - 1;
-                        while i > 0 {
-                            // Todo: improve algorithm, prove that taken can't be 0
-                            let start = i.min(result.len() - 1).max(0);
-                            let end = 0.max(i + k).min(result.len() - 1);
-                            let taken = end - start;
-
-                            if taken == 0 {
-                                i -= 1;
-                                continue;
-                            }
-                            let mut attempt = result[..start].to_vec();
-                            attempt.extend(&vec![0; *k]);
-                            attempt.extend(&result[end..]);
-
-                            if self.consider(&attempt) {
-                                i = if i > taken { i - taken } else { 0 }
-                            } else {
-                                i -= 1;
-                            }
+                        while let Some(new) = self.shrink_zeroes(&attempt, *k) {
+                            attempt = new;
+                            improved = true;
                         }
                     }
+                    if !improved { println!("not improved, exiting, {:?}", attempt); };
                 }
+                self.result = Some(attempt);
             }
         }
     }
@@ -476,4 +478,10 @@ fn main() {
     let mut ts = TestState::new(thread_rng(), Box::new(example_test), 10);
     ts.run();
     println!("Test result {:?}", ts.result);
+
+    let mut tc = TestCase::for_choices(vec![7, 0]);
+    let ls: Vec<i64> = tc
+        .any(&data::Vectors::new(data::Integers::new(95, 105), 9, 11))
+        .unwrap();
+    println!("running with list {:?}", ls);
 }
