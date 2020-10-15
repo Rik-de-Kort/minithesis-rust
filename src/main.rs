@@ -1,4 +1,5 @@
 use rand::prelude::*;
+mod database;
 
 #[derive(Debug)]
 pub enum MTErr {
@@ -556,6 +557,7 @@ fn example_test(tc: &mut TestCase) -> bool {
 
 fn main() {
     let mut ts = TestState::new(thread_rng(), Box::new(example_test), 10);
+    let db_ = database::DirectoryBasedExampleDatabase::new(".minithesis-db");
     ts.run();
     println!("Test result {:?}", ts.result);
 }
