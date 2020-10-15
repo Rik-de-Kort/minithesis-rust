@@ -422,6 +422,49 @@ impl TestState {
         None
     }
 
+    fn shrink_reduce(&mut self, attempt: &Vec<u64>) -> Option<Vec<u64>> {
+        let mut new = attempt.clone();
+        for i in (0..attempt.len()).rev() {
+            let mut low = 0;
+            let mut high = new[i];
+            while low + 1 < high {
+                let mid = low + (high - low) / 2;
+                new[i] = mid;
+                if self.consider(&new) {
+                    high = mid;
+                } else {
+                    low = mid;
+                }
+            }
+            new[i] = high;
+        }
+        if new == *attempt {
+            None
+        } else {
+            Some(new)
+        }
+    }
+
+    fn shrink_sort(&mut self, attempt: &Vec<u64>, k: usize) -> Option<Vec<u64>> {
+        if k > attempt.len() {
+            return None;
+        }
+
+        let valid = (k..attempt.len() - 1).map(|j| (j - k, j)).rev();
+        for (x, y) in valid {
+            let mut middle = attempt[x..y].to_vec().clone();
+            middle.sort();
+            if *middle.as_slice() == attempt[x..y] {
+                continue;
+            };
+            let mut new = [&attempt[..x], &middle, &attempt[y..]].concat();
+            if self.consider(&new) {
+                return Some(new);
+            }
+        }
+        None
+    }
+
     fn shrink(&mut self) {
         println!("shrinking");
 
@@ -443,12 +486,28 @@ impl TestState {
                     }
 
                     // Replacing blocks by zeroes
-                    for k in &[8, 4, 2] {
+                    // We *do* use length one here to avoid special casing in the
+                    // binary search algorithm.
+                    for k in &[8, 4, 2, 1] {
                         while let Some(new) = self.shrink_zeroes(&attempt, *k) {
                             attempt = new;
                             improved = true;
                         }
                     }
+
+                    // Replace individual numbers by lower numbers
+                    if let Some(new) = self.shrink_reduce(&attempt) {
+                        attempt = new;
+                        improved = true;
+                    }
+
+                    for k in &[8, 4, 2] {
+                        while let Some(new) = self.shrink_sort(&attempt, *k) {
+                            attempt = new;
+                            improved = true;
+                        }
+                    }
+
                     if !improved {
                         println!("not improved, exiting, {:?}", attempt);
                     };
@@ -457,22 +516,6 @@ impl TestState {
             }
         }
     }
-}
-
-fn bin_search_down<F: Fn(u64) -> bool>(mut low: u64, mut high: u64, f: F) -> u64 {
-    if f(low) {
-        return low;
-    }
-
-    while low + 1 < high {
-        let mid = low + (high - low) / 2;
-        if f(mid) {
-            high = mid;
-        } else {
-            low = mid;
-        }
-    }
-    high
 }
 
 /// Note that we invert the relationship: true means "interesting"
