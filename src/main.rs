@@ -372,8 +372,8 @@ impl TestState {
         }
     }
 
-    fn consider(&mut self, choices: &Vec<u64>) -> bool {
-        if *choices == *self.result.as_ref().unwrap_or(&vec![]) {
+    fn consider(&mut self, choices: &[u64]) -> bool {
+        if choices.to_vec() == *self.result.as_ref().unwrap_or(&vec![]) {
             true
         } else {
             let mut tc = TestCase::for_choices(choices.to_vec());
@@ -382,7 +382,7 @@ impl TestState {
         }
     }
 
-    fn shrink_remove(&mut self, attempt: &Vec<u64>, k: usize) -> Option<Vec<u64>> {
+    fn shrink_remove(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if k > attempt.len() {
             return None;
         }
@@ -405,7 +405,7 @@ impl TestState {
         None
     }
 
-    fn shrink_zeroes(&mut self, attempt: &Vec<u64>, k: usize) -> Option<Vec<u64>> {
+    fn shrink_zeroes(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if k > attempt.len() {
             return None;
         }
@@ -414,7 +414,7 @@ impl TestState {
             if attempt[x..y].iter().all(|i| *i == 0) {
                 continue;
             }
-            let mut new = [&attempt[..x], &vec![0; y - x], &attempt[y..]].concat();
+            let new = [&attempt[..x], &vec![0; y - x], &attempt[y..]].concat();
             if self.consider(&new) {
                 return Some(new);
             }
@@ -422,8 +422,8 @@ impl TestState {
         None
     }
 
-    fn shrink_reduce(&mut self, attempt: &Vec<u64>) -> Option<Vec<u64>> {
-        let mut new = attempt.clone();
+    fn shrink_reduce(&mut self, attempt: &[u64]) -> Option<Vec<u64>> {
+        let mut new = attempt.to_owned();
         for i in (0..attempt.len()).rev() {
             let mut low = 0;
             let mut high = new[i];
@@ -438,14 +438,14 @@ impl TestState {
             }
             new[i] = high;
         }
-        if new == *attempt {
+        if new == attempt {
             None
         } else {
             Some(new)
         }
     }
 
-    fn shrink_sort(&mut self, attempt: &Vec<u64>, k: usize) -> Option<Vec<u64>> {
+    fn shrink_sort(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if k > attempt.len() {
             return None;
         }
@@ -457,7 +457,7 @@ impl TestState {
             if *middle.as_slice() == attempt[x..y] {
                 continue;
             };
-            let mut new = [&attempt[..x], &middle, &attempt[y..]].concat();
+            let new = [&attempt[..x], &middle, &attempt[y..]].concat();
             if self.consider(&new) {
                 return Some(new);
             }
@@ -472,7 +472,7 @@ impl TestState {
             None => (),
             Some(data) => {
                 let result = data.clone();
-                let mut attempt = result.clone();
+                let mut attempt = result;
                 let mut improved = true;
                 while improved {
                     improved = false;
