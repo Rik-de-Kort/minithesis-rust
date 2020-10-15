@@ -465,6 +465,25 @@ impl TestState {
         None
     }
 
+    fn shrink_swap(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
+        let valid = (k..attempt.len() - 1).map(|j| (j - k, j)).rev();
+        for (x, y) in valid {
+            if attempt[x] == attempt[y] {
+                continue;
+            }
+            let mut new = attempt.to_owned();
+            // Swap
+            new[x] = attempt[y];
+            new[y] = attempt[x];
+            // For now use inefficient reducing algorithm to get it out.
+            match self.shrink_reduce(&new) {
+                Some(result) => return Some(result),
+                None => continue,
+            }
+        }
+        None
+    }
+
     fn shrink(&mut self) {
         println!("shrinking");
 
@@ -503,6 +522,13 @@ impl TestState {
 
                     for k in &[8, 4, 2] {
                         while let Some(new) = self.shrink_sort(&attempt, *k) {
+                            attempt = new;
+                            improved = true;
+                        }
+                    }
+
+                    for k in &[2, 1] {
+                        while let Some(new) = self.shrink_swap(&attempt, *k) {
                             attempt = new;
                             improved = true;
                         }
