@@ -289,12 +289,12 @@ mod data {
 }
 
 /// We are seeing if things are interesting (true or false)
-type InterestingTest<T> = Box<dyn Fn(&mut T) -> bool>;
+pub type TestFunction<T> = fn(&mut T) -> bool;
 
 struct TestState {
     random: ThreadRng,
     max_examples: usize,
-    is_interesting: InterestingTest<TestCase>,
+    is_interesting: TestFunction<TestCase>,
     valid_test_cases: usize,
     calls: usize,
     result: Option<Vec<u64>>,
@@ -307,7 +307,7 @@ const BUFFER_SIZE: usize = 8 * 1024;
 impl TestState {
     pub fn new(
         random: ThreadRng,
-        test_function: InterestingTest<TestCase>,
+        test_function: TestFunction<TestCase>,
         max_examples: usize,
     ) -> TestState {
         TestState {
@@ -554,8 +554,34 @@ fn example_test(tc: &mut TestCase) -> bool {
     }
 }
 
+#[derive(Debug)]
+pub struct TestRunner {
+    // the maximum number of valid test cases to run for.
+    max_examples: usize,
+}
+
+impl TestRunner {
+    pub fn new() -> TestRunner {
+        TestRunner { max_examples: 100 }
+    }
+
+    pub fn max_examples(&mut self, max_examples: usize) -> &mut TestRunner {
+        self.max_examples = max_examples;
+        self
+    }
+
+    pub fn run(&self, test: TestFunction<TestCase>) {
+        let mut ts = TestState::new(thread_rng(), test, self.max_examples);
+        ts.run();
+    }
+}
+
+impl Default for TestRunner {
+    fn default() -> Self {
+        TestRunner::new()
+    }
+}
+
 fn main() {
-    let mut ts = TestState::new(thread_rng(), Box::new(example_test), 10);
-    ts.run();
-    println!("Test result {:?}", ts.result);
+    TestRunner::new().max_examples(10).run(example_test);
 }
