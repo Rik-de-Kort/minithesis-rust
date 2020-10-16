@@ -27,9 +27,9 @@ pub struct TestCase {
 
 use crate::data::Possibility;
 impl TestCase {
-    fn new(prefix: Vec<u64>, random: ThreadRng, max_size: usize) -> TestCase {
+    fn new(prefix: &[u64], random: ThreadRng, max_size: usize) -> TestCase {
         TestCase {
-            prefix,
+            prefix: prefix.to_vec(),
             random,
             max_size,
             choices: vec![],
@@ -38,10 +38,10 @@ impl TestCase {
         }
     }
 
-    fn for_choices(prefix: Vec<u64>) -> TestCase {
+    fn for_choices(prefix: &[u64]) -> TestCase {
         TestCase {
             max_size: prefix.len(),
-            prefix,
+            prefix: prefix.to_vec(),
             random: thread_rng(),
             choices: vec![],
             status: None,
@@ -405,7 +405,7 @@ impl TestState {
         while self.should_keep_generating()
             & ((self.best_scoring == None) || self.valid_test_cases <= self.max_examples / 2)
         {
-            self.test_function(&mut TestCase::new(vec![], self.random, BUFFER_SIZE));
+            self.test_function(&mut TestCase::new(&[], self.random, BUFFER_SIZE));
         }
     }
 
@@ -419,12 +419,12 @@ impl TestState {
         for (x, y) in valid {
             let mut new = [&attempt[..x], &attempt[y..]].concat();
 
-            if self.test_function(&mut TestCase::for_choices(new.clone())) {
+            if self.test_function(&mut TestCase::for_choices(&new)) {
                 return Some(new);
             } else if x > 0 && new[x - 1] > 0 {
                 // Short-circuit prevents overflow
                 new[x - 1] -= 1;
-                if self.test_function(&mut TestCase::for_choices(new.clone())) {
+                if self.test_function(&mut TestCase::for_choices(&new)) {
                     return Some(new);
                 };
             }
@@ -442,7 +442,7 @@ impl TestState {
                 continue;
             }
             let new = [&attempt[..x], &vec![0; y - x], &attempt[y..]].concat();
-            if self.test_function(&mut TestCase::for_choices(new.clone())) {
+            if self.test_function(&mut TestCase::for_choices(&new)) {
                 return Some(new);
             }
         }
@@ -457,7 +457,7 @@ impl TestState {
             while low + 1 < high {
                 let mid = low + (high - low) / 2;
                 new[i] = mid;
-                if self.test_function(&mut TestCase::for_choices(new.clone())) {
+                if self.test_function(&mut TestCase::for_choices(&new)) {
                     high = mid;
                 } else {
                     low = mid;
@@ -485,7 +485,7 @@ impl TestState {
                 continue;
             };
             let new = [&attempt[..x], &middle, &attempt[y..]].concat();
-            if self.test_function(&mut TestCase::for_choices(new.clone())) {
+            if self.test_function(&mut TestCase::for_choices(&new)) {
                 return Some(new);
             }
         }
@@ -576,7 +576,7 @@ fn main() {
     ts.run();
     println!("Test result {:?}", ts.result);
 
-    let mut tc = TestCase::for_choices(ts.result.unwrap());
+    let mut tc = TestCase::for_choices(&ts.result.unwrap());
     println!(
         "Final list {:?}",
         tc.any(&data::vectors(data::integers(95, 105), 9, 11))
