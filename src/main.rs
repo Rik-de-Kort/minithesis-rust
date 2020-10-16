@@ -406,7 +406,7 @@ impl TestState {
     }
 
     fn consider(&mut self, choices: &[u64]) -> bool {
-        if choices.to_vec() == *self.result.as_ref().unwrap_or(&vec![]) {
+        if choices == self.result.as_deref().unwrap_or(&[]) {
             true
         } else {
             let mut tc = TestCase::for_choices(choices.to_vec());
