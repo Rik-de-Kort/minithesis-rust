@@ -265,18 +265,29 @@ mod data {
         }
     }
 
-    struct Nothing {}
+    pub struct Nothing {}
     impl<T> Possibility<T> for Nothing {
         fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
             Err(tc.reject())
         }
     }
 
-    struct MixOf<T, P: Possibility<T>> {
+    pub struct MixOf<T, P: Possibility<T>> {
         first: P,
         second: P,
         phantom_t: PhantomData<T>,
     }
+
+    impl<T, P: Possibility<T>> MixOf<T, P> {
+        pub fn new(first: P, second: P) -> Self {
+            MixOf {
+                first,
+                second,
+                phantom_t: PhantomData,
+            }
+        }
+    }
+
     impl<T, P: Possibility<T>> Possibility<T> for MixOf<T, P> {
         fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
             if tc.choice(1)? == 0 {
@@ -285,6 +296,28 @@ mod data {
                 tc.any(&self.second)
             }
         }
+    }
+
+    pub fn vectors<U, T: Possibility<U>>(
+        elements: T,
+        min_size: usize,
+        max_size: usize,
+    ) -> Vectors<U, T> {
+        Vectors::new(elements, min_size, max_size)
+    }
+
+    pub fn integers(minimum: i64, maximum: i64) -> Integers {
+        Integers::new(minimum, maximum)
+    }
+
+    pub fn just<T: Clone>(value: T) -> Just<T> {
+        Just { value }
+    }
+    pub fn nothing() -> Nothing {
+        Nothing {}
+    }
+    pub fn mix_of<T, P: Possibility<T>>(first: P, second: P) -> MixOf<T, P> {
+        MixOf::new(first, second)
     }
 }
 
@@ -546,7 +579,7 @@ impl TestState {
 
 /// Note that we invert the relationship: true means "interesting"
 fn example_test(tc: &mut TestCase) -> bool {
-    let ls = tc.any(&data::Vectors::new(data::Integers::new(95, 105), 9, 11));
+    let ls = tc.any(&data::vectors(data::integers(95, 105), 9, 11));
     println!("running with list {:?}", ls);
     match ls {
         Ok(list) => list.iter().sum::<i64>() > 1000,
