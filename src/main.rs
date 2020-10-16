@@ -381,7 +381,6 @@ impl TestState {
                 self.valid_test_cases += 1;
 
                 if self.result == None || (*self.result.as_ref().unwrap() > test_case.choices) {
-                    println!("updated best result!");
                     self.result = Some(test_case.choices.clone());
                 }
                 true
@@ -513,8 +512,6 @@ impl TestState {
     }
 
     fn shrink(&mut self) {
-        println!("shrinking");
-
         if let Some(data) = &self.result {
             let result = data.clone();
             let mut attempt = result;
@@ -559,10 +556,6 @@ impl TestState {
                         improved = true;
                     }
                 }
-
-                if !improved {
-                    println!("not improved, exiting, {:?}", attempt);
-                };
             }
             self.result = Some(attempt);
         }
@@ -572,7 +565,6 @@ impl TestState {
 /// Note that we invert the relationship: true means "interesting"
 fn example_test(tc: &mut TestCase) -> bool {
     let ls = tc.any(&data::vectors(data::integers(95, 105), 9, 11));
-    println!("running with list {:?}", ls);
     match ls {
         Ok(list) => list.iter().sum::<i64>() > 1000,
         Err(_) => false,
@@ -583,4 +575,10 @@ fn main() {
     let mut ts = TestState::new(thread_rng(), Box::new(example_test), 10);
     ts.run();
     println!("Test result {:?}", ts.result);
+
+    let mut tc = TestCase::for_choices(ts.result.unwrap());
+    println!(
+        "Final list {:?}",
+        tc.any(&data::vectors(data::integers(95, 105), 9, 11))
+    );
 }
