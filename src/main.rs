@@ -406,7 +406,7 @@ impl TestState {
     }
 
     fn consider(&mut self, choices: &[u64]) -> bool {
-        if choices.to_vec() == *self.result.as_ref().unwrap_or(&vec![]) {
+        if choices == self.result.as_deref().unwrap_or(&[]) {
             true
         } else {
             let mut tc = TestCase::for_choices(choices.to_vec());
@@ -485,7 +485,7 @@ impl TestState {
 
         let valid = (k..attempt.len() - 1).map(|j| (j - k, j)).rev();
         for (x, y) in valid {
-            let mut middle = attempt[x..y].to_vec().clone();
+            let mut middle = attempt[x..y].to_vec();
             middle.sort_unstable();
             if *middle.as_slice() == attempt[x..y] {
                 continue;
@@ -520,59 +520,56 @@ impl TestState {
     fn shrink(&mut self) {
         println!("shrinking");
 
-        match &self.result {
-            None => (),
-            Some(data) => {
-                let result = data.clone();
-                let mut attempt = result;
-                let mut improved = true;
-                while improved {
-                    improved = false;
+        if let Some(data) = &self.result {
+            let result = data.clone();
+            let mut attempt = result;
+            let mut improved = true;
+            while improved {
+                improved = false;
 
-                    // Deleting choices we made in chunks
-                    for k in &[8, 4, 2, 1] {
-                        while let Some(new) = self.shrink_remove(&attempt, *k) {
-                            attempt = new;
-                            improved = true;
-                        }
-                    }
-
-                    // Replacing blocks by zeroes
-                    // We *do* use length one here to avoid special casing in the
-                    // binary search algorithm.
-                    for k in &[8, 4, 2, 1] {
-                        while let Some(new) = self.shrink_zeroes(&attempt, *k) {
-                            attempt = new;
-                            improved = true;
-                        }
-                    }
-
-                    // Replace individual numbers by lower numbers
-                    if let Some(new) = self.shrink_reduce(&attempt) {
+                // Deleting choices we made in chunks
+                for k in &[8, 4, 2, 1] {
+                    while let Some(new) = self.shrink_remove(&attempt, *k) {
                         attempt = new;
                         improved = true;
                     }
-
-                    for k in &[8, 4, 2] {
-                        while let Some(new) = self.shrink_sort(&attempt, *k) {
-                            attempt = new;
-                            improved = true;
-                        }
-                    }
-
-                    for k in &[2, 1] {
-                        while let Some(new) = self.shrink_swap(&attempt, *k) {
-                            attempt = new;
-                            improved = true;
-                        }
-                    }
-
-                    if !improved {
-                        println!("not improved, exiting, {:?}", attempt);
-                    };
                 }
-                self.result = Some(attempt);
+
+                // Replacing blocks by zeroes
+                // We *do* use length one here to avoid special casing in the
+                // binary search algorithm.
+                for k in &[8, 4, 2, 1] {
+                    while let Some(new) = self.shrink_zeroes(&attempt, *k) {
+                        attempt = new;
+                        improved = true;
+                    }
+                }
+
+                // Replace individual numbers by lower numbers
+                if let Some(new) = self.shrink_reduce(&attempt) {
+                    attempt = new;
+                    improved = true;
+                }
+
+                for k in &[8, 4, 2] {
+                    while let Some(new) = self.shrink_sort(&attempt, *k) {
+                        attempt = new;
+                        improved = true;
+                    }
+                }
+
+                for k in &[2, 1] {
+                    while let Some(new) = self.shrink_swap(&attempt, *k) {
+                        attempt = new;
+                        improved = true;
+                    }
+                }
+
+                if !improved {
+                    println!("not improved, exiting, {:?}", attempt);
+                };
             }
+            self.result = Some(attempt);
         }
     }
 }
