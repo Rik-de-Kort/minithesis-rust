@@ -355,7 +355,8 @@ impl TestState {
         }
     }
 
-    fn test_function(&mut self, mut test_case: &mut TestCase) {
+    /// Function to run tests, returns true if result was interesting
+    fn test_function(&mut self, mut test_case: &mut TestCase) -> bool {
         if (self.is_interesting)(&mut test_case) {
             test_case.status = Some(MTStatus::Interesting);
         } else if test_case.status == None {
@@ -368,20 +369,24 @@ impl TestState {
             None => unreachable!("Didn't expect test case status to be empty!"),
             Some(MTStatus::Invalid) => {
                 self.test_is_trivial = test_case.choices.is_empty();
+                false
             }
             Some(MTStatus::Valid) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
+                false
             }
             Some(MTStatus::Interesting) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
 
                 if self.result == None || (*self.result.as_ref().unwrap() > test_case.choices) {
-                    self.result = Some(test_case.choices.clone())
+                    println!("updated best result!");
+                    self.result = Some(test_case.choices.clone());
                 }
+                true
             }
-            Some(MTStatus::Overrun) => {}
+            Some(MTStatus::Overrun) => false,
         }
     }
 
@@ -405,16 +410,6 @@ impl TestState {
         }
     }
 
-    fn consider(&mut self, choices: &[u64]) -> bool {
-        if choices == self.result.as_deref().unwrap_or(&[]) {
-            true
-        } else {
-            let mut tc = TestCase::for_choices(choices.to_vec());
-            self.test_function(&mut tc);
-            tc.status == Some(MTStatus::Interesting)
-        }
-    }
-
     fn shrink_remove(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if k > attempt.len() {
             return None;
@@ -425,12 +420,12 @@ impl TestState {
         for (x, y) in valid {
             let mut new = [&attempt[..x], &attempt[y..]].concat();
 
-            if self.consider(&new) {
+            if self.test_function(&mut TestCase::for_choices(new.clone())) {
                 return Some(new);
             } else if x > 0 && new[x - 1] > 0 {
                 // Short-circuit prevents overflow
                 new[x - 1] -= 1;
-                if self.consider(&new) {
+                if self.test_function(&mut TestCase::for_choices(new.clone())) {
                     return Some(new);
                 };
             }
@@ -448,7 +443,7 @@ impl TestState {
                 continue;
             }
             let new = [&attempt[..x], &vec![0; y - x], &attempt[y..]].concat();
-            if self.consider(&new) {
+            if self.test_function(&mut TestCase::for_choices(new.clone())) {
                 return Some(new);
             }
         }
@@ -463,7 +458,7 @@ impl TestState {
             while low + 1 < high {
                 let mid = low + (high - low) / 2;
                 new[i] = mid;
-                if self.consider(&new) {
+                if self.test_function(&mut TestCase::for_choices(new.clone())) {
                     high = mid;
                 } else {
                     low = mid;
@@ -491,7 +486,7 @@ impl TestState {
                 continue;
             };
             let new = [&attempt[..x], &middle, &attempt[y..]].concat();
-            if self.consider(&new) {
+            if self.test_function(&mut TestCase::for_choices(new.clone())) {
                 return Some(new);
             }
         }
