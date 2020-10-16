@@ -485,7 +485,7 @@ impl TestState {
 
         let valid = (k..attempt.len() - 1).map(|j| (j - k, j)).rev();
         for (x, y) in valid {
-            let mut middle = attempt[x..y].to_vec().clone();
+            let mut middle = attempt[x..y].to_vec();
             middle.sort_unstable();
             if *middle.as_slice() == attempt[x..y] {
                 continue;
