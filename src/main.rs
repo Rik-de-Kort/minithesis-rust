@@ -26,3 +26,6 @@ fn main() {
         tc.any(&data::vectors(data::integers(95, 105), 9, 11))
     );
 }
+
+#[cfg(test)]
+mod test;
