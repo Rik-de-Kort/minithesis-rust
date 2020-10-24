@@ -65,15 +65,6 @@ impl TestCase {
         }
     }
 
-    /// Return 1 with probability p, 0 otherwise.
-    pub fn weighted(&mut self, p: f64) -> Result<u64, MTErr> {
-        if self.random.gen_bool(p) {
-            self.det_choice(1)
-        } else {
-            self.det_choice(0)
-        }
-    }
-
     /// Mark this test case as invalid
     pub fn reject(&mut self) -> MTErr {
         self.mark_status(MTStatus::Invalid)
@@ -106,6 +97,22 @@ impl TestCase {
             }
         }
     }
+
+    /// Return 1 with probability p, 0 otherwise.
+    pub fn weighted(&mut self, p: f64) -> Result<u64, MTErr> {
+        if self.choices.len() < self.prefix.len() {
+            if self.prefix[self.choices.len()] > 1 {
+                Err(self.reject())
+            } else {
+                self.det_choice(self.prefix[self.choices.len()])
+            }
+        } else if self.random.gen_bool(p) {
+            self.det_choice(1)
+        } else {
+            self.det_choice(0)
+        }
+    }
+
 
     /// Return an integer in the range [0, n]
     pub fn choice(&mut self, n: u64) -> Result<u64, MTErr> {
@@ -182,6 +189,15 @@ impl TestState {
                 true
             }
             Some(MTStatus::Overrun) => false,
+        }
+    }
+
+    pub fn get_value_for<T>(&self, p: &impl Possibility<T>) -> Option<T> {
+        if let Some(choices) = &self.result {
+            let mut tc = TestCase::for_choices(&choices);
+            Some(tc.any(p).unwrap())
+        } else {
+            None
         }
     }
 
