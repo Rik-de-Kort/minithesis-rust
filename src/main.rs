@@ -1,9 +1,8 @@
-use rand::prelude::*;
-
 mod test_harness;
-use test_harness::*;
+mod data;
 
-use data;
+use rand::prelude::*;
+use crate::test_harness::*;
 
 /// We are seeing if things are interesting (true or false)
 /// Note that we invert the relationship: true means "interesting"

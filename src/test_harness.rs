@@ -1,5 +1,4 @@
-// use crate::data::Possibility;
-use data::Possibility;
+use crate::data::Possibility;
 use rand::prelude::*;
 
 #[derive(Debug)]
