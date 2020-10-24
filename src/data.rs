@@ -1,7 +1,8 @@
 /// Represents some range of values that might be used in a test, that can be requested from a
 /// TestCase.
-// use crate::*;
-use crate::test_harness::*;
+mod test_harness;
+use test_harness::*;
+
 use std::clone::Clone;
 use std::convert::TryInto;
 use std::marker::{PhantomData, Sized};

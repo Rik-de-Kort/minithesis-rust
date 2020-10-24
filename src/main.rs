@@ -1,9 +1,9 @@
 use rand::prelude::*;
 
 mod test_harness;
-// mod data;
-use minithesis_rust::test_harness::*;
-use minithesis_rust::data;
+use test_harness::*;
+
+use data;
 
 /// We are seeing if things are interesting (true or false)
 /// Note that we invert the relationship: true means "interesting"
