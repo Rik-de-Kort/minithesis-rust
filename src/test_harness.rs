@@ -161,7 +161,9 @@ impl TestState {
     /// Function to run tests, returns true if result was interesting
     fn test_function(&mut self, mut test_case: &mut TestCase) -> bool {
         if (self.is_interesting)(&mut test_case) {
-            test_case.status = Some(MTStatus::Interesting);
+            if test_case.status == None {
+                test_case.status = Some(MTStatus::Interesting);
+            }
         } else if test_case.status == None {
             test_case.status = Some(MTStatus::Valid)
         }
@@ -226,10 +228,11 @@ impl TestState {
             return None;
         }
 
-        // Generate all valid removals (don't worry, it's lazy!)
-        let valid = (k..attempt.len() - 1).map(|j| (j - k, j)).rev();
+        let valid = (0..=attempt.len()-k).map(|j| (j, j+k)).rev();
         for (x, y) in valid {
-            let mut new = [&attempt[..x], &attempt[y..]].concat();
+            let head = &attempt[..x];
+            let tail = if y < attempt.len() { &attempt[y..] } else { &[] }; 
+            let mut new = [head, tail].concat();
 
             if self.test_function(&mut TestCase::for_choices(&new)) {
                 return Some(new);
@@ -323,7 +326,50 @@ impl TestState {
         None
     }
 
-    fn shrink(&mut self) {
+    fn shrink_redistribute(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
+        if attempt.len() < k {
+            return None;
+        }
+
+        let mut new = attempt.to_owned();
+        let valid = (0..attempt.len()-k).map(|j| (j, j+k));
+        for (x, y) in valid {
+            if attempt[x] == 0 {
+                continue;
+            }
+            let redistribute = |mut new_: Vec<u64>, v| {
+                new_[x] = v;
+                new_[y] = attempt[x] + attempt[y] - v;
+                new_
+            };
+
+            let mut low = 0;
+            let mut high = attempt[x];
+
+            new = redistribute(new, low);
+            if self.test_function(&mut TestCase::for_choices(&new)) {
+                return Some(new)
+            }
+
+            while low+1 < high {
+                let mid = low + (high - low) / 2;
+                new = redistribute(new, mid);
+                if self.test_function(&mut TestCase::for_choices(&new)) {
+                    high = mid;
+                } else {
+                    low = mid;
+                }
+            }
+            new = redistribute(new, high);
+        }
+        if new == attempt {
+            None
+        } else {
+            Some(new)
+        }
+    }
+
+    pub fn shrink(&mut self) {
         if let Some(data) = &self.result {
             let result = data.clone();
             let mut attempt = result;
@@ -355,6 +401,7 @@ impl TestState {
                     improved = true;
                 }
 
+                // Sort pieces of the vector
                 for k in &[8, 4, 2] {
                     while let Some(new) = self.shrink_sort(&attempt, *k) {
                         attempt = new;
@@ -362,8 +409,17 @@ impl TestState {
                     }
                 }
 
+                // Swap nearby numbers
                 for k in &[2, 1] {
                     while let Some(new) = self.shrink_swap(&attempt, *k) {
+                        attempt = new;
+                        improved = true;
+                    }
+                }
+
+                // Redistribute values between nearby numbers
+                for k in &[2, 1] {
+                    while let Some(new) = self.shrink_redistribute(&attempt, *k) {
                         attempt = new;
                         improved = true;
                     }
@@ -374,3 +430,78 @@ impl TestState {
     }
 }
 
+fn all_good(tc: &mut TestCase) -> bool {
+    true
+}
+
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_test_function() {
+        // All good
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| true), 10000);
+
+        let mut tc = TestCase::new(&[], thread_rng(), 10000);
+        assert!(ts.test_function(&mut tc));
+        assert_eq!(tc.status, Some(MTStatus::Interesting));
+
+        let mut tc = TestCase::for_choices(&[]);
+        assert!(ts.test_function(&mut tc));
+        assert_eq!(tc.status, Some(MTStatus::Interesting));
+
+        // All false
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| false), 10000);
+
+        let mut tc = TestCase::new(&[], thread_rng(), 10000);
+        assert!(!ts.test_function(&mut tc));
+
+        let mut tc = TestCase::for_choices(&[]);
+        assert!(!ts.test_function(&mut tc));
+
+        // Invalid and bad
+        let mut ts = TestState::new(thread_rng(), Box::new(|tc| {tc.assume(false); false}), 10000);
+
+        let mut tc = TestCase::new(&[], thread_rng(), 10000);
+        assert!(!ts.test_function(&mut tc));
+
+        // Invalid and good
+        let mut ts = TestState::new(thread_rng(), Box::new(|tc| {tc.assume(false); true}), 10000);
+
+        let mut tc = TestCase::new(&[], thread_rng(), 10000);
+        assert!(!ts.test_function(&mut tc));
+
+        // Overrun
+        let mut ts = TestState::new(thread_rng(), Box::new(|tc| {tc.choice(10); true}), 10000);
+        let mut tc = TestCase::for_choices(&[]);
+        ts.test_function(&mut tc);
+        assert_eq!(tc.status, Some(MTStatus::Overrun));
+    }
+
+    #[test]
+    fn test_shrink_remove() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| true), 10000);
+        ts.result = Some(vec![1, 2, 3]);
+
+        assert_eq!(ts.shrink_remove(&[1, 2], 1), Some(vec![1]));
+        assert!(ts.shrink_remove(&[1, 2], 2) == Some(vec![]));
+        assert!(ts.shrink_remove(&[1, 2, 3, 4], 2) == Some(vec![1, 2]));
+
+        // slightly complex case to make sure it's not always the last two
+        let mut ts = TestState::new(thread_rng(),
+                                    Box::new(|tc| (0..3).map(|_| tc.choice(10).unwrap()).collect::<Vec<_>>()[2] == 5),
+                                    10000);
+        ts.result = Some(vec![1, 2, 5, 4, 5]);
+        assert_eq!(ts.shrink_remove(&[1, 2, 5, 4, 5], 2), Some(vec![1, 2, 5]));
+    }
+
+    #[test]
+    fn test_shrink_redistribute() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| true), 10000);
+        ts.result = Some(vec![500, 500, 500, 500]);
+
+        assert_eq!(ts.shrink_redistribute(&[500, 500], 1), Some(vec![0, 1000]));
+        assert_eq!(ts.shrink_redistribute(&[500, 500, 500], 2), Some(vec![0, 500, 1000]));
+    }
+}

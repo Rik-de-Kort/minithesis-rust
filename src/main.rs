@@ -16,6 +16,9 @@ fn example_test(tc: &mut TestCase) -> bool {
 
 
 fn main() {
+    let mut to_sort = vec![3, 2, 1];
+    to_sort.sort();
+    println!("{:?}", to_sort);
     let mut ts = TestState::new(thread_rng(), Box::new(example_test), 10000);
     ts.run();
     println!("Test result {:?}", ts.result);
