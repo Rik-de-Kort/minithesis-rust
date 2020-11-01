@@ -9,3 +9,6 @@ edition = "2018"
 [dependencies]
 rand = "*"
 rand_chacha = "*"
+sha-1 = "0.9.1"
+arrayvec = "0.5"
+
