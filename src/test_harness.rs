@@ -446,37 +446,44 @@ mod tests {
         let mut tc = TestCase::new(&[], thread_rng(), 10000);
         assert!(ts.test_function(&mut tc));
         assert_eq!(tc.status, Some(MTStatus::Interesting));
+        assert!(ts.result.is_some());
 
         let mut tc = TestCase::for_choices(&[]);
         assert!(ts.test_function(&mut tc));
         assert_eq!(tc.status, Some(MTStatus::Interesting));
+        assert!(ts.result.is_some());
 
         // All false
         let mut ts = TestState::new(thread_rng(), Box::new(|_| false), 10000);
 
         let mut tc = TestCase::new(&[], thread_rng(), 10000);
         assert!(!ts.test_function(&mut tc));
+        assert!(ts.result.is_none());
 
         let mut tc = TestCase::for_choices(&[]);
         assert!(!ts.test_function(&mut tc));
+        assert!(ts.result.is_none());
 
         // Invalid and bad
         let mut ts = TestState::new(thread_rng(), Box::new(|tc| {tc.assume(false); false}), 10000);
 
         let mut tc = TestCase::new(&[], thread_rng(), 10000);
         assert!(!ts.test_function(&mut tc));
+        assert!(ts.result.is_none());
 
         // Invalid and good
         let mut ts = TestState::new(thread_rng(), Box::new(|tc| {tc.assume(false); true}), 10000);
 
         let mut tc = TestCase::new(&[], thread_rng(), 10000);
         assert!(!ts.test_function(&mut tc));
+        assert!(ts.result.is_none());
 
         // Overrun
         let mut ts = TestState::new(thread_rng(), Box::new(|tc| {tc.choice(10); true}), 10000);
         let mut tc = TestCase::for_choices(&[]);
         ts.test_function(&mut tc);
         assert_eq!(tc.status, Some(MTStatus::Overrun));
+        assert!(ts.result.is_none());
     }
 
     #[test]
