@@ -727,8 +727,6 @@ mod tests {
 
     #[test]
     fn finds_small_list_even_with_bad_lists() {
-        use std::convert::TryInto;
-
         struct BadList;
         impl Possibility<Vec<i64>> for BadList {
             fn produce(&self, tc: &mut TestCase) -> Result<Vec<i64>, Error> {
@@ -745,5 +743,24 @@ mod tests {
                 Err(_) => Status::Invalid
             }
         }
+
+        let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
+        ts.run();
+        assert_eq!(ts.result_as(BadList), Some(vec![1001]));
+    }
+
+    #[test]
+    fn reduces_additive_pairs() {
+        fn sum_greater_1000(tc: &mut TestCase) -> Status {
+            if let (Ok(n), Ok(m)) = (tc.choice(1000), tc.choice(1000)) {
+                if m + n > 1000 { Status::Interesting } else { Status::Valid }
+            } else {
+                Status::Invalid
+            }
+        }
+
+        let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
+        ts.run();
+        assert_eq!(ts.result, Some(vec![0, 1001]));
     }
 }
