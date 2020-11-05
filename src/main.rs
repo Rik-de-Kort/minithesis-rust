@@ -708,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn test_small_list() {
+    fn test_finds_small_list() {
         fn sum_greater_1000(tc: &mut TestCase) -> Status {
             let d = data::vectors(data::integers(0, 10000), 0, 1000);
             match d.produce(tc) {
@@ -723,5 +723,27 @@ mod tests {
 
         let d = data::vectors(data::integers(0, 10000), 0, 1000);
         assert_eq!(ts.result_as(d).unwrap(), vec![1001]);
+    }
+
+    #[test]
+    fn test_finds_small_list_even_with_bad_lists() {
+        use std::convert::TryInto;
+
+        struct BadList;
+        impl Possibility<Vec<i64>> for BadList {
+            fn produce(&self, tc: &mut TestCase) -> Result<Vec<i64>, Error> {
+                let n = tc.choice(10)?;
+                let result = (0..n).map(|_| {tc.choice(10000)}).collect::<Result<Vec<u64>, Error>>()?;
+                Ok(result.iter().map(|i| *i as i64).collect())
+            }
+        }
+
+        fn sum_greater_1000(tc: &mut TestCase) -> Status {
+            let ls = BadList.produce(tc);
+            match BadList.produce(tc) {
+                Ok(ls) => if ls.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
+                Err(_) => Status::Invalid
+            }
+        }
     }
 }
