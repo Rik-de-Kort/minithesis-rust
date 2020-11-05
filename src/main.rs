@@ -2,14 +2,14 @@ use rand::prelude::*;
 mod database;
 
 #[derive(Debug)]
-pub enum MTErr {
+pub enum Error {
     Frozen,
     Overrun,
     Invalid,
 }
 
 #[derive(Debug, PartialEq)]
-enum MTStatus {
+enum Status {
     Invalid,
     Valid,
     Interesting,
@@ -21,7 +21,7 @@ pub struct TestCase {
     random: ThreadRng,
     max_size: usize,
     choices: Vec<u64>,
-    status: Option<MTStatus>,
+    status: Option<Status>,
     depth: u64,
 }
 
@@ -51,9 +51,9 @@ impl TestCase {
 
     /// Insert a definite choice in the choice sequence
     /// N.B. All integrity checks happen here!
-    fn forced_choice(&mut self, n: u64) -> Result<u64, MTErr> {
+    fn forced_choice(&mut self, n: u64) -> Result<u64, Error> {
         if self.choices.len() >= self.max_size {
-            Err(MTErr::Overrun)
+            Err(Error::Overrun)
         } else {
             self.choices.push(n);
             Ok(n)
@@ -61,7 +61,7 @@ impl TestCase {
     }
 
     /// Return 1 with probability p, 0 otherwise.
-    fn weighted(&mut self, p: f64) -> Result<u64, MTErr> {
+    fn weighted(&mut self, p: f64) -> Result<u64, Error> {
         if self.random.gen_bool(p) {
             self.forced_choice(1)
         } else {
@@ -70,12 +70,12 @@ impl TestCase {
     }
 
     /// Mark this test case as invalid
-    fn reject(&mut self) -> MTErr {
-        MTErr::Invalid
+    fn reject(&mut self) -> Error {
+        Error::Invalid
     }
 
     /// If this precondition is not met, abort the test and mark this test case as invalid
-    fn assume(&mut self, precondition: bool) -> Option<MTErr> {
+    fn assume(&mut self, precondition: bool) -> Option<Error> {
         if !precondition {
             Some(self.reject())
         } else {
@@ -84,7 +84,7 @@ impl TestCase {
     }
 
     /// Return an integer in the range [0, n]
-    fn choice(&mut self, n: u64) -> Result<u64, MTErr> {
+    fn choice(&mut self, n: u64) -> Result<u64, Error> {
         if self.choices.len() < self.prefix.len() {
             self.forced_choice(self.prefix[self.choices.len()])
         } else {
@@ -103,7 +103,7 @@ mod data {
     use std::marker::{PhantomData, Sized};
 
     pub trait Possibility<T>: Sized {
-        fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr>;
+        fn produce(&self, tc: &mut TestCase) -> Result<T, Error>;
 
         fn map<U, F: Fn(T) -> U>(self, f: F) -> Map<T, U, F, Self> {
             Map {
@@ -140,7 +140,7 @@ mod data {
         phantom_u: PhantomData<U>,
     }
     impl<T, U, F: Fn(T) -> U, P: Possibility<T>> Possibility<U> for Map<T, U, F, P> {
-        fn produce(&self, tc: &mut TestCase) -> Result<U, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<U, Error> {
             Ok((self.map)(self.source.produce(tc)?))
         }
     }
@@ -153,7 +153,7 @@ mod data {
         phantom_q: PhantomData<Q>,
     }
     impl<T, U, F: Fn(T) -> Q, P: Possibility<T>, Q: Possibility<U>> Bind<T, U, F, P, Q> {
-        fn produce(&self, tc: &mut TestCase) -> Result<U, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<U, Error> {
             let inner = self.source.produce(tc)?;
             (self.map)(inner).produce(tc)
         }
@@ -165,7 +165,7 @@ mod data {
         phantom_t: PhantomData<T>,
     }
     impl<T, F: Fn(&T) -> bool, P: Possibility<T>> Possibility<T> for Satisfying<T, F, P> {
-        fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<T, Error> {
             for _ in 0..3 {
                 let candidate = self.source.produce(tc)?;
                 if (self.predicate)(&candidate) {
@@ -190,7 +190,7 @@ mod data {
     }
 
     impl Possibility<i64> for Integers {
-        fn produce(&self, tc: &mut TestCase) -> Result<i64, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<i64, Error> {
             let offset: i64 = tc.choice(self.range)?.try_into().unwrap();
             Ok(self.minimum + offset)
         }
@@ -214,7 +214,7 @@ mod data {
     }
 
     impl<U, T: Possibility<U>> Possibility<Vec<U>> for Vectors<U, T> {
-        fn produce(&self, tc: &mut TestCase) -> Result<Vec<U>, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<Vec<U>, Error> {
             let mut result = vec![];
             loop {
                 if result.len() < self.min_size {
@@ -236,14 +236,14 @@ mod data {
     }
 
     impl<T: Clone> Possibility<T> for Just<T> {
-        fn produce(&self, _: &mut TestCase) -> Result<T, MTErr> {
+        fn produce(&self, _: &mut TestCase) -> Result<T, Error> {
             Ok(self.value.clone())
         }
     }
 
     pub struct Nothing {}
     impl<T> Possibility<T> for Nothing {
-        fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<T, Error> {
             Err(tc.reject())
         }
     }
@@ -265,7 +265,7 @@ mod data {
     }
 
     impl<T, P: Possibility<T>> Possibility<T> for MixOf<T, P> {
-        fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<T, Error> {
             if tc.choice(1)? == 0 {
                 self.first.produce(tc)
             } else {
@@ -333,23 +333,23 @@ impl TestState {
 
     fn test_function(&mut self, mut test_case: &mut TestCase) {
         if (self.is_interesting)(&mut test_case) {
-            test_case.status = Some(MTStatus::Interesting);
+            test_case.status = Some(Status::Interesting);
         } else if test_case.status == None {
-            test_case.status = Some(MTStatus::Valid)
+            test_case.status = Some(Status::Valid)
         }
 
         self.calls += 1;
 
         match test_case.status {
             None => unreachable!("Didn't expect test case status to be empty!"),
-            Some(MTStatus::Invalid) => {
+            Some(Status::Invalid) => {
                 self.test_is_trivial = test_case.choices.is_empty();
             }
-            Some(MTStatus::Valid) => {
+            Some(Status::Valid) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
             }
-            Some(MTStatus::Interesting) => {
+            Some(Status::Interesting) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
 
@@ -386,7 +386,7 @@ impl TestState {
         } else {
             let mut tc = TestCase::for_choices(choices.to_vec());
             self.test_function(&mut tc);
-            tc.status == Some(MTStatus::Interesting)
+            tc.status == Some(Status::Interesting)
         }
     }
 
