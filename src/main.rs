@@ -51,7 +51,7 @@ impl TestCase {
 
     /// Insert a definite choice in the choice sequence
     /// N.B. All integrity checks happen here!
-    fn det_choice(&mut self, n: u64) -> Result<u64, MTErr> {
+    fn forced_choice(&mut self, n: u64) -> Result<u64, MTErr> {
         if self.choices.len() >= self.max_size {
             Err(MTErr::Overrun)
         } else {
@@ -63,9 +63,9 @@ impl TestCase {
     /// Return 1 with probability p, 0 otherwise.
     fn weighted(&mut self, p: f64) -> Result<u64, MTErr> {
         if self.random.gen_bool(p) {
-            self.det_choice(1)
+            self.forced_choice(1)
         } else {
-            self.det_choice(0)
+            self.forced_choice(0)
         }
     }
 
@@ -86,10 +86,10 @@ impl TestCase {
     /// Return an integer in the range [0, n]
     fn choice(&mut self, n: u64) -> Result<u64, MTErr> {
         if self.choices.len() < self.prefix.len() {
-            self.det_choice(self.prefix[self.choices.len()])
+            self.forced_choice(self.prefix[self.choices.len()])
         } else {
             let result = self.random.gen_range(0, n + 1);
-            self.det_choice(result)
+            self.forced_choice(result)
         }
     }
 }
@@ -218,9 +218,9 @@ mod data {
             let mut result = vec![];
             loop {
                 if result.len() < self.min_size {
-                    tc.det_choice(1)?;
+                    tc.forced_choice(1)?;
                 } else if result.len() + 1 >= self.max_size {
-                    tc.det_choice(0)?;
+                    tc.forced_choice(0)?;
                     break;
                 } else if tc.weighted(0.9)? == 0 {
                     break;
