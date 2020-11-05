@@ -3,7 +3,6 @@ mod database;
 
 #[derive(Debug)]
 pub enum Error {
-    Frozen,
     Overrun,
     Invalid,
 }
@@ -297,13 +296,11 @@ mod data {
     }
 }
 
-/// We are seeing if things are interesting (true or false)
-type InterestingTest<T> = Box<dyn Fn(&mut T) -> bool>;
 
 struct TestState {
     random: ThreadRng,
     max_examples: usize,
-    is_interesting: InterestingTest<TestCase>,
+    is_interesting: Box<dyn Fn(&mut TestCase) -> Status>,
     valid_test_cases: usize,
     calls: usize,
     result: Option<Vec<u64>>,
@@ -316,7 +313,7 @@ const BUFFER_SIZE: usize = 8 * 1024;
 impl TestState {
     pub fn new(
         random: ThreadRng,
-        test_function: InterestingTest<TestCase>,
+        test_function: Box<dyn Fn(&mut TestCase) -> Status>,
         max_examples: usize,
     ) -> TestState {
         TestState {
@@ -331,34 +328,30 @@ impl TestState {
         }
     }
 
-    fn test_function(&mut self, mut test_case: &mut TestCase) {
-        if (self.is_interesting)(&mut test_case) {
-            test_case.status = Some(Status::Interesting);
-        } else if test_case.status == None {
-            test_case.status = Some(Status::Valid)
-        }
-
+    fn test_function(&mut self, mut test_case: &mut TestCase) -> bool {
         self.calls += 1;
 
-        match test_case.status {
-            None => unreachable!("Didn't expect test case status to be empty!"),
-            Some(Status::Invalid) => {
-                self.test_is_trivial = test_case.choices.is_empty();
-            }
-            Some(Status::Valid) => {
+        match (self.is_interesting)(&mut test_case) {
+            Status::Valid => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
-            }
-            Some(Status::Interesting) => {
+                false
+            },
+            Status::Invalid => {false},
+            Status::Interesting => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
 
-                if self.result == None || (*self.result.as_ref().unwrap() > test_case.choices) {
-                    self.result = Some(test_case.choices.clone())
+                if self.result == None || *self.result.as_ref().unwrap() > test_case.choices {
+                    self.result = Some(test_case.choices.clone());
+                    true
+                } else {
+                    false
                 }
             }
         }
     }
+
 
     fn run(&mut self) {
         self.generate();
@@ -384,9 +377,7 @@ impl TestState {
         if choices == self.result.as_deref().unwrap_or(&[]) {
             true
         } else {
-            let mut tc = TestCase::for_choices(choices.to_vec());
-            self.test_function(&mut tc);
-            tc.status == Some(Status::Interesting)
+            self.test_function(&mut TestCase::for_choices(choices.to_vec()))
         }
     }
 
@@ -538,7 +529,6 @@ impl TestState {
     }
 
     fn shrink(&mut self) {
-        println!("shrinking");
 
         if let Some(data) = &self.result {
             let result = data.clone();
@@ -601,12 +591,11 @@ impl TestState {
     }
 }
 
-/// Note that we invert the relationship: true means "interesting"
-fn example_test(tc: &mut TestCase) -> bool {
+fn example_test(tc: &mut TestCase) -> Status {
     let ls = data::vectors(data::integers(95, 105), 9, 11).produce(tc);
     match ls {
-        Ok(list) => list.iter().sum::<i64>() > 1000,
-        Err(_) => false,
+        Ok(list) => if list.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
+        Err(_) => { Status::Invalid }
     }
 }
 
@@ -620,28 +609,77 @@ fn main() {
 
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_test_function_interesting() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
+
+        let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
+        assert!(ts.test_function(&mut tc));
+        assert_eq!(ts.result, Some(vec![]));
+
+        ts.result = Some(vec![1, 2, 3, 4]);
+        let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
+        assert!(ts.test_function(&mut tc));
+        assert_eq!(ts.result, Some(vec![]));
+
+
+        let mut tc = TestCase::new(vec![1, 2, 3, 4], thread_rng(), 10000);
+        assert!(!ts.test_function(&mut tc));
+        assert_eq!(ts.result, Some(vec![]));
+    }
+
+    #[test]
+    fn test_test_function_valid() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Valid), 10000);
+
+        let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
+        assert!(!ts.test_function(&mut tc));
+        assert_eq!(ts.result, None);
+
+        ts.result = Some(vec![1, 2, 3, 4]);
+        ts.test_function(&mut TestCase::new((&[]).to_vec(), thread_rng(), 10000));
+        assert_eq!(ts.result, Some(vec![1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn test_test_function_invalid() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Invalid), 10000);
+
+        let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
+        assert!(!ts.test_function(&mut tc));
+        assert_eq!(ts.result, None);
+    }
     
     #[test]
     fn test_shrink_remove() {
-        let mut ts = TestState::new(thread_rng(), Box::new(|_| true), 10000);
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
         ts.result = Some(vec![1, 2, 3]);
 
         assert_eq!(ts.shrink_remove(&[1, 2], 1), Some(vec![1]));
         assert_eq!(ts.shrink_remove(&[1, 2], 2), Some(vec![]));
+
+        ts.result = Some(vec![1, 2, 3, 4, 5]);
         assert_eq!(ts.shrink_remove(&[1, 2, 3, 4], 2), Some(vec![1, 2]));
 
         // Slightly complex case to make sure it doesn't only check the last ones.
-        let mut ts = TestState::new(thread_rng(), Box::new(|tc| (0..3).map(|_| tc.choice(10).unwrap()).collect::<Vec<_>>()[2] == 5), 10000);
+        fn second_is_five(tc: &mut TestCase) -> Status {
+            let ls = (0..3).map(|_| tc.choice(10).unwrap()).collect::<Vec<_>>();
+            if ls[2] == 5 { Status::Interesting } else { Status::Valid }
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(second_is_five), 10000);
         ts.result = Some(vec![1, 2, 5, 4, 5]);
         assert_eq!(ts.shrink_remove(&[1, 2, 5, 4, 5], 2), Some(vec![1, 2, 5]));
     }
 
     #[test]
     fn test_shrink_redistribute() {
-        let mut ts = TestState::new(thread_rng(), Box::new(|_| true), 10000);
-        ts.result = Some(vec![500, 500, 500, 500]);
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
 
+        ts.result = Some(vec![500, 500, 500, 500]);
         assert_eq!(ts.shrink_redistribute(&[500, 500], 1), Some(vec![0, 1000]));
+
+        ts.result = Some(vec![500, 500, 500, 500]);
         assert_eq!(ts.shrink_redistribute(&[500, 500, 500], 2), Some(vec![0, 500, 1000]));
     }
 }
