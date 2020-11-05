@@ -4,12 +4,12 @@ mod database;
 #[derive(Debug)]
 pub enum MTErr {
     Frozen,
-    StopTest,
+    Overrun,
+    Invalid,
 }
 
 #[derive(Debug, PartialEq)]
 enum MTStatus {
-    Overrun,
     Invalid,
     Valid,
     Interesting,
@@ -22,7 +22,6 @@ pub struct TestCase {
     max_size: usize,
     choices: Vec<u64>,
     status: Option<MTStatus>,
-    // print_results: bool,
     depth: u64,
 }
 
@@ -53,16 +52,11 @@ impl TestCase {
     /// Insert a definite choice in the choice sequence
     /// N.B. All integrity checks happen here!
     fn det_choice(&mut self, n: u64) -> Result<u64, MTErr> {
-        match self.status {
-            None => {
-                if self.choices.len() >= self.max_size {
-                    Err(self.mark_status(MTStatus::Overrun))
-                } else {
-                    self.choices.push(n);
-                    Ok(n)
-                }
-            }
-            Some(_) => Err(MTErr::Frozen),
+        if self.choices.len() >= self.max_size {
+            Err(MTErr::Overrun)
+        } else {
+            self.choices.push(n);
+            Ok(n)
         }
     }
 
@@ -77,7 +71,7 @@ impl TestCase {
 
     /// Mark this test case as invalid
     fn reject(&mut self) -> MTErr {
-        self.mark_status(MTStatus::Invalid)
+        MTErr::Invalid
     }
 
     /// If this precondition is not met, abort the test and mark this test case as invalid
@@ -86,18 +80,6 @@ impl TestCase {
             Some(self.reject())
         } else {
             None
-        }
-    }
-
-
-    // Note that mark_status never returns u64
-    fn mark_status(&mut self, status: MTStatus) -> MTErr {
-        match self.status {
-            Some(_) => MTErr::Frozen,
-            None => {
-                self.status = Some(status);
-                MTErr::StopTest
-            }
         }
     }
 
@@ -375,7 +357,6 @@ impl TestState {
                     self.result = Some(test_case.choices.clone())
                 }
             }
-            Some(MTStatus::Overrun) => {}
         }
     }
 
