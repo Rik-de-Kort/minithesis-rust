@@ -61,7 +61,13 @@ impl TestCase {
 
     /// Return 1 with probability p, 0 otherwise.
     fn weighted(&mut self, p: f64) -> Result<u64, Error> {
-        if self.random.gen_bool(p) {
+        if self.choices.len() < self.prefix.len() {
+            if self.prefix[self.choices.len()] > 1 {
+                Err(Error::Invalid)
+            } else {
+                self.forced_choice(self.prefix[self.choices.len()])
+            }
+        } else if self.random.gen_bool(p) {
             self.forced_choice(1)
         } else {
             self.forced_choice(0)
@@ -191,6 +197,7 @@ mod data {
     impl Possibility<i64> for Integers {
         fn produce(&self, tc: &mut TestCase) -> Result<i64, Error> {
             let offset: i64 = tc.choice(self.range)?.try_into().unwrap();
+            println!("got integer choice {}", offset);
             Ok(self.minimum + offset)
         }
     }
@@ -352,6 +359,13 @@ impl TestState {
         }
     }
 
+    fn result_as<T>(&self, p: impl Possibility<T>) -> Option<T> {
+        if let Some(choices) = &self.result {
+            Some(p.produce(&mut TestCase::for_choices(choices.to_vec())).unwrap())
+        } else {
+            None
+        }
+    }
 
     fn run(&mut self) {
         self.generate();
@@ -374,7 +388,7 @@ impl TestState {
     }
 
     fn consider(&mut self, choices: &[u64]) -> bool {
-        if choices == self.result.as_deref().unwrap_or(&[]) {
+        if Some(choices.to_vec()) == self.result {
             true
         } else {
             self.test_function(&mut TestCase::for_choices(choices.to_vec()))
@@ -606,6 +620,8 @@ fn main() {
     println!("Test result {:?}", ts.result);
 }
 
+use std::panic;
+
 
 mod tests {
     use super::*;
@@ -681,5 +697,31 @@ mod tests {
 
         ts.result = Some(vec![500, 500, 500, 500]);
         assert_eq!(ts.shrink_redistribute(&[500, 500, 500], 2), Some(vec![0, 500, 1000]));
+    }
+
+    #[test]
+    fn test_deterministic() {
+        // TODO: add more tests here
+        let d = data::vectors(data::integers(0, 10000), 0, 1000);
+        let mut tc = TestCase::for_choices(vec![1, 1001, 0]);
+        assert_eq!(d.produce(&mut tc).unwrap(), vec![1001]);
+    }
+
+    #[test]
+    fn test_small_list() {
+        fn sum_greater_1000(tc: &mut TestCase) -> Status {
+            let d = data::vectors(data::integers(0, 10000), 0, 1000);
+            match d.produce(tc) {
+                Ok(ls) => if ls.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
+                Err(_) => Status::Invalid
+            }
+        }
+        
+
+        let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
+        ts.run();
+
+        let d = data::vectors(data::integers(0, 10000), 0, 1000);
+        assert_eq!(ts.result_as(d).unwrap(), vec![1001]);
     }
 }
