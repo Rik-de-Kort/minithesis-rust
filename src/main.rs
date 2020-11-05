@@ -2,14 +2,13 @@ use rand::prelude::*;
 mod database;
 
 #[derive(Debug)]
-pub enum MTErr {
-    Frozen,
-    StopTest,
+pub enum Error {
+    Overrun,
+    Invalid,
 }
 
 #[derive(Debug, PartialEq)]
-enum MTStatus {
-    Overrun,
+enum Status {
     Invalid,
     Valid,
     Interesting,
@@ -21,8 +20,7 @@ pub struct TestCase {
     random: ThreadRng,
     max_size: usize,
     choices: Vec<u64>,
-    status: Option<MTStatus>,
-    // print_results: bool,
+    status: Option<Status>,
     depth: u64,
 }
 
@@ -52,36 +50,31 @@ impl TestCase {
 
     /// Insert a definite choice in the choice sequence
     /// N.B. All integrity checks happen here!
-    fn det_choice(&mut self, n: u64) -> Result<u64, MTErr> {
-        match self.status {
-            None => {
-                if self.choices.len() >= self.max_size {
-                    Err(self.mark_status(MTStatus::Overrun))
-                } else {
-                    self.choices.push(n);
-                    Ok(n)
-                }
-            }
-            Some(_) => Err(MTErr::Frozen),
+    fn forced_choice(&mut self, n: u64) -> Result<u64, Error> {
+        if self.choices.len() >= self.max_size {
+            Err(Error::Overrun)
+        } else {
+            self.choices.push(n);
+            Ok(n)
         }
     }
 
     /// Return 1 with probability p, 0 otherwise.
-    fn weighted(&mut self, p: f64) -> Result<u64, MTErr> {
+    fn weighted(&mut self, p: f64) -> Result<u64, Error> {
         if self.random.gen_bool(p) {
-            self.det_choice(1)
+            self.forced_choice(1)
         } else {
-            self.det_choice(0)
+            self.forced_choice(0)
         }
     }
 
     /// Mark this test case as invalid
-    fn reject(&mut self) -> MTErr {
-        self.mark_status(MTStatus::Invalid)
+    fn reject(&mut self) -> Error {
+        Error::Invalid
     }
 
     /// If this precondition is not met, abort the test and mark this test case as invalid
-    fn assume(&mut self, precondition: bool) -> Option<MTErr> {
+    fn assume(&mut self, precondition: bool) -> Option<Error> {
         if !precondition {
             Some(self.reject())
         } else {
@@ -89,32 +82,13 @@ impl TestCase {
         }
     }
 
-    /// Return a possible value
-    fn any<T>(&mut self, p: &impl Possibility<T>) -> Result<T, MTErr> {
-        self.depth += 1;
-        let result = p.produce(self);
-        self.depth -= 1;
-        result
-    }
-
-    // Note that mark_status never returns u64
-    fn mark_status(&mut self, status: MTStatus) -> MTErr {
-        match self.status {
-            Some(_) => MTErr::Frozen,
-            None => {
-                self.status = Some(status);
-                MTErr::StopTest
-            }
-        }
-    }
-
     /// Return an integer in the range [0, n]
-    fn choice(&mut self, n: u64) -> Result<u64, MTErr> {
+    fn choice(&mut self, n: u64) -> Result<u64, Error> {
         if self.choices.len() < self.prefix.len() {
-            self.det_choice(self.prefix[self.choices.len()])
+            self.forced_choice(self.prefix[self.choices.len()])
         } else {
             let result = self.random.gen_range(0, n + 1);
-            self.det_choice(result)
+            self.forced_choice(result)
         }
     }
 }
@@ -128,7 +102,7 @@ mod data {
     use std::marker::{PhantomData, Sized};
 
     pub trait Possibility<T>: Sized {
-        fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr>;
+        fn produce(&self, tc: &mut TestCase) -> Result<T, Error>;
 
         fn map<U, F: Fn(T) -> U>(self, f: F) -> Map<T, U, F, Self> {
             Map {
@@ -165,8 +139,8 @@ mod data {
         phantom_u: PhantomData<U>,
     }
     impl<T, U, F: Fn(T) -> U, P: Possibility<T>> Possibility<U> for Map<T, U, F, P> {
-        fn produce(&self, tc: &mut TestCase) -> Result<U, MTErr> {
-            Ok((self.map)(tc.any(&self.source)?))
+        fn produce(&self, tc: &mut TestCase) -> Result<U, Error> {
+            Ok((self.map)(self.source.produce(tc)?))
         }
     }
 
@@ -178,9 +152,9 @@ mod data {
         phantom_q: PhantomData<Q>,
     }
     impl<T, U, F: Fn(T) -> Q, P: Possibility<T>, Q: Possibility<U>> Bind<T, U, F, P, Q> {
-        fn produce(&self, tc: &mut TestCase) -> Result<U, MTErr> {
-            let inner = tc.any(&self.source)?;
-            tc.any(&(self.map)(inner))
+        fn produce(&self, tc: &mut TestCase) -> Result<U, Error> {
+            let inner = self.source.produce(tc)?;
+            (self.map)(inner).produce(tc)
         }
     }
 
@@ -190,9 +164,9 @@ mod data {
         phantom_t: PhantomData<T>,
     }
     impl<T, F: Fn(&T) -> bool, P: Possibility<T>> Possibility<T> for Satisfying<T, F, P> {
-        fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<T, Error> {
             for _ in 0..3 {
-                let candidate = tc.any(&self.source)?;
+                let candidate = self.source.produce(tc)?;
                 if (self.predicate)(&candidate) {
                     return Ok(candidate);
                 }
@@ -215,7 +189,7 @@ mod data {
     }
 
     impl Possibility<i64> for Integers {
-        fn produce(&self, tc: &mut TestCase) -> Result<i64, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<i64, Error> {
             let offset: i64 = tc.choice(self.range)?.try_into().unwrap();
             Ok(self.minimum + offset)
         }
@@ -239,18 +213,18 @@ mod data {
     }
 
     impl<U, T: Possibility<U>> Possibility<Vec<U>> for Vectors<U, T> {
-        fn produce(&self, tc: &mut TestCase) -> Result<Vec<U>, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<Vec<U>, Error> {
             let mut result = vec![];
             loop {
                 if result.len() < self.min_size {
-                    tc.det_choice(1)?;
+                    tc.forced_choice(1)?;
                 } else if result.len() + 1 >= self.max_size {
-                    tc.det_choice(0)?;
+                    tc.forced_choice(0)?;
                     break;
                 } else if tc.weighted(0.9)? == 0 {
                     break;
                 }
-                result.push(tc.any(&self.elements)?);
+                result.push(self.elements.produce(tc)?);
             }
             Ok(result)
         }
@@ -261,14 +235,14 @@ mod data {
     }
 
     impl<T: Clone> Possibility<T> for Just<T> {
-        fn produce(&self, _: &mut TestCase) -> Result<T, MTErr> {
+        fn produce(&self, _: &mut TestCase) -> Result<T, Error> {
             Ok(self.value.clone())
         }
     }
 
     pub struct Nothing {}
     impl<T> Possibility<T> for Nothing {
-        fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<T, Error> {
             Err(tc.reject())
         }
     }
@@ -290,11 +264,11 @@ mod data {
     }
 
     impl<T, P: Possibility<T>> Possibility<T> for MixOf<T, P> {
-        fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
+        fn produce(&self, tc: &mut TestCase) -> Result<T, Error> {
             if tc.choice(1)? == 0 {
-                tc.any(&self.first)
+                self.first.produce(tc)
             } else {
-                tc.any(&self.second)
+                self.second.produce(tc)
             }
         }
     }
@@ -322,13 +296,11 @@ mod data {
     }
 }
 
-/// We are seeing if things are interesting (true or false)
-type InterestingTest<T> = Box<dyn Fn(&mut T) -> bool>;
 
 struct TestState {
     random: ThreadRng,
     max_examples: usize,
-    is_interesting: InterestingTest<TestCase>,
+    is_interesting: Box<dyn Fn(&mut TestCase) -> Status>,
     valid_test_cases: usize,
     calls: usize,
     result: Option<Vec<u64>>,
@@ -341,7 +313,7 @@ const BUFFER_SIZE: usize = 8 * 1024;
 impl TestState {
     pub fn new(
         random: ThreadRng,
-        test_function: InterestingTest<TestCase>,
+        test_function: Box<dyn Fn(&mut TestCase) -> Status>,
         max_examples: usize,
     ) -> TestState {
         TestState {
@@ -356,35 +328,30 @@ impl TestState {
         }
     }
 
-    fn test_function(&mut self, mut test_case: &mut TestCase) {
-        if (self.is_interesting)(&mut test_case) {
-            test_case.status = Some(MTStatus::Interesting);
-        } else if test_case.status == None {
-            test_case.status = Some(MTStatus::Valid)
-        }
-
+    fn test_function(&mut self, mut test_case: &mut TestCase) -> bool {
         self.calls += 1;
 
-        match test_case.status {
-            None => unreachable!("Didn't expect test case status to be empty!"),
-            Some(MTStatus::Invalid) => {
-                self.test_is_trivial = test_case.choices.is_empty();
-            }
-            Some(MTStatus::Valid) => {
+        match (self.is_interesting)(&mut test_case) {
+            Status::Valid => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
-            }
-            Some(MTStatus::Interesting) => {
+                false
+            },
+            Status::Invalid => {false},
+            Status::Interesting => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
 
-                if self.result == None || (*self.result.as_ref().unwrap() > test_case.choices) {
-                    self.result = Some(test_case.choices.clone())
+                if self.result == None || *self.result.as_ref().unwrap() > test_case.choices {
+                    self.result = Some(test_case.choices.clone());
+                    true
+                } else {
+                    false
                 }
             }
-            Some(MTStatus::Overrun) => {}
         }
     }
+
 
     fn run(&mut self) {
         self.generate();
@@ -410,9 +377,7 @@ impl TestState {
         if choices == self.result.as_deref().unwrap_or(&[]) {
             true
         } else {
-            let mut tc = TestCase::for_choices(choices.to_vec());
-            self.test_function(&mut tc);
-            tc.status == Some(MTStatus::Interesting)
+            self.test_function(&mut TestCase::for_choices(choices.to_vec()))
         }
     }
 
@@ -422,9 +387,11 @@ impl TestState {
         }
 
         // Generate all valid removals (don't worry, it's lazy!)
-        let valid = (k..attempt.len() - 1).map(|j| (j - k, j)).rev();
+        let valid = (0..=attempt.len()-k).map(|j| (j, j+k)).rev();
         for (x, y) in valid {
-            let mut new = [&attempt[..x], &attempt[y..]].concat();
+            let head = &attempt[..x];
+            let tail = if y < attempt.len() { &attempt[y..] } else { &[] };
+            let mut new = [head, tail].concat();
 
             if self.consider(&new) {
                 return Some(new);
@@ -518,8 +485,50 @@ impl TestState {
         None
     }
 
+    fn shrink_redistribute(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
+        if attempt.len() < k { 
+            return None;
+        }
+
+        let mut new = attempt.to_owned();
+        let valid = (0..attempt.len()-k).map(|j| (j, j+k));
+        for (x, y) in valid {
+            if attempt[x] == 0 {
+                continue;
+            }
+            let redistribute = |mut new_: Vec<u64>, v| {
+                new_[x] = v;
+                new_[y] = attempt[x] + attempt[y] - v;
+                new_
+            };
+
+            let mut low = 0;
+            let mut high = attempt[x];
+
+            new = redistribute(new, low);
+            if self.consider(&new) {
+                return Some(new);
+            }
+
+            while low+1 < high {
+                let mid  = low + (high - low) / 2;
+                new = redistribute(new, mid);
+                if self.consider(&new) {
+                    high = mid;
+                } else {
+                    low = mid;
+                }
+            }
+            new = redistribute(new, high);
+        }
+        if new == attempt {
+            None
+        } else {
+            Some(new)
+        }
+    }
+
     fn shrink(&mut self) {
-        println!("shrinking");
 
         if let Some(data) = &self.result {
             let result = data.clone();
@@ -566,6 +575,13 @@ impl TestState {
                     }
                 }
 
+                for k in &[2, 1] {
+                    while let Some(new) = self.shrink_redistribute(&attempt, *k) {
+                        attempt = new;
+                        improved = true;
+                    }
+                }
+
                 if !improved {
                     println!("not improved, exiting, {:?}", attempt);
                 };
@@ -575,13 +591,11 @@ impl TestState {
     }
 }
 
-/// Note that we invert the relationship: true means "interesting"
-fn example_test(tc: &mut TestCase) -> bool {
-    let ls = tc.any(&data::vectors(data::integers(95, 105), 9, 11));
-    println!("running with list {:?}", ls);
+fn example_test(tc: &mut TestCase) -> Status {
+    let ls = data::vectors(data::integers(95, 105), 9, 11).produce(tc);
     match ls {
-        Ok(list) => list.iter().sum::<i64>() > 1000,
-        Err(_) => false,
+        Ok(list) => if list.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
+        Err(_) => { Status::Invalid }
     }
 }
 
@@ -590,4 +604,82 @@ fn main() {
     let db_ = database::DirectoryBasedExampleDatabase::new(".minithesis-db");
     ts.run();
     println!("Test result {:?}", ts.result);
+}
+
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_test_function_interesting() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
+
+        let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
+        assert!(ts.test_function(&mut tc));
+        assert_eq!(ts.result, Some(vec![]));
+
+        ts.result = Some(vec![1, 2, 3, 4]);
+        let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
+        assert!(ts.test_function(&mut tc));
+        assert_eq!(ts.result, Some(vec![]));
+
+
+        let mut tc = TestCase::new(vec![1, 2, 3, 4], thread_rng(), 10000);
+        assert!(!ts.test_function(&mut tc));
+        assert_eq!(ts.result, Some(vec![]));
+    }
+
+    #[test]
+    fn test_test_function_valid() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Valid), 10000);
+
+        let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
+        assert!(!ts.test_function(&mut tc));
+        assert_eq!(ts.result, None);
+
+        ts.result = Some(vec![1, 2, 3, 4]);
+        ts.test_function(&mut TestCase::new((&[]).to_vec(), thread_rng(), 10000));
+        assert_eq!(ts.result, Some(vec![1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn test_test_function_invalid() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Invalid), 10000);
+
+        let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
+        assert!(!ts.test_function(&mut tc));
+        assert_eq!(ts.result, None);
+    }
+    
+    #[test]
+    fn test_shrink_remove() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
+        ts.result = Some(vec![1, 2, 3]);
+
+        assert_eq!(ts.shrink_remove(&[1, 2], 1), Some(vec![1]));
+        assert_eq!(ts.shrink_remove(&[1, 2], 2), Some(vec![]));
+
+        ts.result = Some(vec![1, 2, 3, 4, 5]);
+        assert_eq!(ts.shrink_remove(&[1, 2, 3, 4], 2), Some(vec![1, 2]));
+
+        // Slightly complex case to make sure it doesn't only check the last ones.
+        fn second_is_five(tc: &mut TestCase) -> Status {
+            let ls = (0..3).map(|_| tc.choice(10).unwrap()).collect::<Vec<_>>();
+            if ls[2] == 5 { Status::Interesting } else { Status::Valid }
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(second_is_five), 10000);
+        ts.result = Some(vec![1, 2, 5, 4, 5]);
+        assert_eq!(ts.shrink_remove(&[1, 2, 5, 4, 5], 2), Some(vec![1, 2, 5]));
+    }
+
+    #[test]
+    fn test_shrink_redistribute() {
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
+
+        ts.result = Some(vec![500, 500, 500, 500]);
+        assert_eq!(ts.shrink_redistribute(&[500, 500], 1), Some(vec![0, 1000]));
+
+        ts.result = Some(vec![500, 500, 500, 500]);
+        assert_eq!(ts.shrink_redistribute(&[500, 500, 500], 2), Some(vec![0, 500, 1000]));
+    }
 }
