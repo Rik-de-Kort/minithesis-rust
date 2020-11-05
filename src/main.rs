@@ -89,13 +89,6 @@ impl TestCase {
         }
     }
 
-    /// Return a possible value
-    fn any<T>(&mut self, p: &impl Possibility<T>) -> Result<T, MTErr> {
-        self.depth += 1;
-        let result = p.produce(self);
-        self.depth -= 1;
-        result
-    }
 
     // Note that mark_status never returns u64
     fn mark_status(&mut self, status: MTStatus) -> MTErr {
@@ -166,7 +159,7 @@ mod data {
     }
     impl<T, U, F: Fn(T) -> U, P: Possibility<T>> Possibility<U> for Map<T, U, F, P> {
         fn produce(&self, tc: &mut TestCase) -> Result<U, MTErr> {
-            Ok((self.map)(tc.any(&self.source)?))
+            Ok((self.map)(self.source.produce(tc)?))
         }
     }
 
@@ -179,8 +172,8 @@ mod data {
     }
     impl<T, U, F: Fn(T) -> Q, P: Possibility<T>, Q: Possibility<U>> Bind<T, U, F, P, Q> {
         fn produce(&self, tc: &mut TestCase) -> Result<U, MTErr> {
-            let inner = tc.any(&self.source)?;
-            tc.any(&(self.map)(inner))
+            let inner = self.source.produce(tc)?;
+            (self.map)(inner).produce(tc)
         }
     }
 
@@ -192,7 +185,7 @@ mod data {
     impl<T, F: Fn(&T) -> bool, P: Possibility<T>> Possibility<T> for Satisfying<T, F, P> {
         fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
             for _ in 0..3 {
-                let candidate = tc.any(&self.source)?;
+                let candidate = self.source.produce(tc)?;
                 if (self.predicate)(&candidate) {
                     return Ok(candidate);
                 }
@@ -250,7 +243,7 @@ mod data {
                 } else if tc.weighted(0.9)? == 0 {
                     break;
                 }
-                result.push(tc.any(&self.elements)?);
+                result.push(self.elements.produce(tc)?);
             }
             Ok(result)
         }
@@ -292,9 +285,9 @@ mod data {
     impl<T, P: Possibility<T>> Possibility<T> for MixOf<T, P> {
         fn produce(&self, tc: &mut TestCase) -> Result<T, MTErr> {
             if tc.choice(1)? == 0 {
-                tc.any(&self.first)
+                self.first.produce(tc)
             } else {
-                tc.any(&self.second)
+                self.second.produce(tc)
             }
         }
     }
@@ -629,8 +622,7 @@ impl TestState {
 
 /// Note that we invert the relationship: true means "interesting"
 fn example_test(tc: &mut TestCase) -> bool {
-    let ls = tc.any(&data::vectors(data::integers(95, 105), 9, 11));
-    println!("running with list {:?}", ls);
+    let ls = data::vectors(data::integers(95, 105), 9, 11).produce(tc);
     match ls {
         Ok(list) => list.iter().sum::<i64>() > 1000,
         Err(_) => false,
