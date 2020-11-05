@@ -627,7 +627,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_test_function_interesting() {
+    fn test_function_interesting() {
         let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
 
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
@@ -646,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn test_test_function_valid() {
+    fn test_function_valid() {
         let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Valid), 10000);
 
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
@@ -659,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn test_test_function_invalid() {
+    fn test_function_invalid() {
         let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Invalid), 10000);
 
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
@@ -668,7 +668,7 @@ mod tests {
     }
     
     #[test]
-    fn test_shrink_remove() {
+    fn shrink_remove() {
         let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
         ts.result = Some(vec![1, 2, 3]);
 
@@ -689,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn test_shrink_redistribute() {
+    fn shrink_redistribute() {
         let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
 
         ts.result = Some(vec![500, 500, 500, 500]);
@@ -700,7 +700,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deterministic() {
+    fn produce_with_deterministic_test_case() {
         // TODO: add more tests here
         let d = data::vectors(data::integers(0, 10000), 0, 1000);
         let mut tc = TestCase::for_choices(vec![1, 1001, 0]);
@@ -708,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn test_finds_small_list() {
+    fn finds_small_list() {
         fn sum_greater_1000(tc: &mut TestCase) -> Status {
             let d = data::vectors(data::integers(0, 10000), 0, 1000);
             match d.produce(tc) {
@@ -726,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn test_finds_small_list_even_with_bad_lists() {
+    fn finds_small_list_even_with_bad_lists() {
         use std::convert::TryInto;
 
         struct BadList;
