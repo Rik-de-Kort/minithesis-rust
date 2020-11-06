@@ -197,7 +197,6 @@ mod data {
     impl Possibility<i64> for Integers {
         fn produce(&self, tc: &mut TestCase) -> Result<i64, Error> {
             let offset: i64 = tc.choice(self.range)?.try_into().unwrap();
-            println!("got integer choice {}", offset);
             Ok(self.minimum + offset)
         }
     }
@@ -349,7 +348,7 @@ impl TestState {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
 
-                if self.result == None || *self.result.as_ref().unwrap() > test_case.choices {
+                if self.result == None || self.result.as_ref().unwrap().len() > test_case.choices.len() || *self.result.as_ref().unwrap() > test_case.choices {
                     self.result = Some(test_case.choices.clone());
                     true
                 } else {
@@ -686,6 +685,21 @@ mod tests {
         let mut ts = TestState::new(thread_rng(), Box::new(second_is_five), 10000);
         ts.result = Some(vec![1, 2, 5, 4, 5]);
         assert_eq!(ts.shrink_remove(&[1, 2, 5, 4, 5], 2), Some(vec![1, 2, 5]));
+
+
+        fn sum_greater_1000(tc: &mut TestCase) -> Status {
+            let d = data::vectors(data::integers(0, 10000), 0, 1000);
+            match d.produce(tc) {
+                Ok(ls) => if ls.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
+                Err(_) => Status::Invalid
+            }
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
+        ts.result = Some(vec![1, 10000, 1, 10000]);
+        assert_eq!(ts.shrink_remove(&[1, 0, 1, 1001, 0], 2), Some(vec![1, 1001, 0]));
+
+        ts.result = Some(vec![1, 10000, 1, 10000]);
+        assert_eq!(ts.shrink_remove(&[1, 0, 1, 1001, 0], 1), None);
     }
 
     #[test]
@@ -725,6 +739,27 @@ mod tests {
         assert_eq!(ts.result_as(d).unwrap(), vec![1001]);
     }
 
+
+    #[test]
+    fn finds_small_list_debug() {
+        fn sum_greater_1000(tc: &mut TestCase) -> Status {
+            let d = data::vectors(data::integers(0, 10000), 0, 1000);
+            match d.produce(tc) {
+                Ok(ls) => if ls.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
+                Err(_) => Status::Invalid
+            }
+        }
+        
+        let d = data::vectors(data::integers(0, 10000), 0, 1000);
+        let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
+        ts.result = Some(vec![1, 0, 1, 1001, 0]);
+        // This buggy case came about due to the fact that rust compares vecs element by element.
+        // assert!(vec![1, 1001, 0] < vec![1, 0, 1, 1001, 0]);
+        assert_eq!(ts.shrink_remove(&[1, 0, 1, 1001, 0], 2), Some(vec![1, 1001, 0]));
+        assert_eq!(ts.result_as(d).unwrap(), vec![1001]);
+    }
+
+
     #[test]
     fn finds_small_list_even_with_bad_lists() {
         struct BadList;
@@ -737,10 +772,13 @@ mod tests {
         }
 
         fn sum_greater_1000(tc: &mut TestCase) -> Status {
-            let ls = BadList.produce(tc);
             match BadList.produce(tc) {
-                Ok(ls) => if ls.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
-                Err(_) => Status::Invalid
+                Ok(ls) => if ls.iter().sum::<i64>() > 1000 {
+                    Status::Interesting 
+                } else {
+                    Status::Valid
+                },
+                Err(_) => {println!("Invalid!"); Status::Invalid}
             }
         }
 
