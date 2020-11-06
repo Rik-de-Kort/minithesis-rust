@@ -7,12 +7,6 @@ pub enum Error {
     Invalid,
 }
 
-#[derive(Debug, PartialEq)]
-enum Status {
-    Invalid,
-    Valid,
-    Interesting,
-}
 
 #[derive(Debug)]
 pub struct TestCase {
@@ -20,7 +14,7 @@ pub struct TestCase {
     random: ThreadRng,
     max_size: usize,
     choices: Vec<u64>,
-    status: Option<Status>,
+    status: Option<bool>,
     depth: u64,
 }
 
@@ -306,7 +300,7 @@ mod data {
 struct TestState {
     random: ThreadRng,
     max_examples: usize,
-    is_interesting: Box<dyn Fn(&mut TestCase) -> Status>,
+    is_interesting: Box<dyn Fn(&mut TestCase) -> Result<bool, Error>>,
     valid_test_cases: usize,
     calls: usize,
     result: Option<Vec<u64>>,
@@ -319,7 +313,7 @@ const BUFFER_SIZE: usize = 8 * 1024;
 impl TestState {
     pub fn new(
         random: ThreadRng,
-        test_function: Box<dyn Fn(&mut TestCase) -> Status>,
+        test_function: Box<dyn Fn(&mut TestCase) -> Result<bool, Error>>,
         max_examples: usize,
     ) -> TestState {
         TestState {
@@ -338,13 +332,12 @@ impl TestState {
         self.calls += 1;
 
         match (self.is_interesting)(&mut test_case) {
-            Status::Valid => {
+            Ok(false) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
                 false
             },
-            Status::Invalid => {false},
-            Status::Interesting => {
+            Ok(true) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
 
@@ -354,12 +347,14 @@ impl TestState {
                 } else {
                     false
                 }
-            }
+            },
+            Err(_) => false
         }
     }
 
     fn result_as<T>(&self, p: impl Possibility<T>) -> Option<T> {
         if let Some(choices) = &self.result {
+            // TODO: proper error handling
             Some(p.produce(&mut TestCase::for_choices(choices.to_vec())).unwrap())
         } else {
             None
@@ -604,12 +599,9 @@ impl TestState {
     }
 }
 
-fn example_test(tc: &mut TestCase) -> Status {
-    let ls = data::vectors(data::integers(95, 105), 9, 11).produce(tc);
-    match ls {
-        Ok(list) => if list.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
-        Err(_) => { Status::Invalid }
-    }
+fn example_test(tc: &mut TestCase) -> Result<bool, Error> {
+    let ls = data::vectors(data::integers(95, 105), 9, 11).produce(tc)?;
+    Ok(ls.iter().sum::<i64>() > 1000)
 }
 
 fn main() {
@@ -619,15 +611,13 @@ fn main() {
     println!("Test result {:?}", ts.result);
 }
 
-use std::panic;
-
 
 mod tests {
     use super::*;
 
     #[test]
     fn test_function_interesting() {
-        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Ok(true)), 10000);
 
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
         assert!(ts.test_function(&mut tc));
@@ -646,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_function_valid() {
-        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Valid), 10000);
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Ok(false)), 10000);
 
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
         assert!(!ts.test_function(&mut tc));
@@ -659,7 +649,7 @@ mod tests {
 
     #[test]
     fn test_function_invalid() {
-        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Invalid), 10000);
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Err(Error::Invalid)), 10000);
 
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
         assert!(!ts.test_function(&mut tc));
@@ -668,7 +658,7 @@ mod tests {
     
     #[test]
     fn shrink_remove() {
-        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Ok(true)), 10000);
         ts.result = Some(vec![1, 2, 3]);
 
         assert_eq!(ts.shrink_remove(&[1, 2], 1), Some(vec![1]));
@@ -678,21 +668,18 @@ mod tests {
         assert_eq!(ts.shrink_remove(&[1, 2, 3, 4], 2), Some(vec![1, 2]));
 
         // Slightly complex case to make sure it doesn't only check the last ones.
-        fn second_is_five(tc: &mut TestCase) -> Status {
+        fn second_is_five(tc: &mut TestCase) -> Result<bool, Error> {
             let ls = (0..3).map(|_| tc.choice(10).unwrap()).collect::<Vec<_>>();
-            if ls[2] == 5 { Status::Interesting } else { Status::Valid }
+            Ok(ls[2] == 5)
         }
         let mut ts = TestState::new(thread_rng(), Box::new(second_is_five), 10000);
         ts.result = Some(vec![1, 2, 5, 4, 5]);
         assert_eq!(ts.shrink_remove(&[1, 2, 5, 4, 5], 2), Some(vec![1, 2, 5]));
 
 
-        fn sum_greater_1000(tc: &mut TestCase) -> Status {
-            let d = data::vectors(data::integers(0, 10000), 0, 1000);
-            match d.produce(tc) {
-                Ok(ls) => if ls.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
-                Err(_) => Status::Invalid
-            }
+        fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error> {
+            let ls = data::vectors(data::integers(0, 10000), 0, 1000).produce(tc)?;
+            Ok(ls.iter().sum::<i64>() > 1000)
         }
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
         ts.result = Some(vec![1, 10000, 1, 10000]);
@@ -704,7 +691,7 @@ mod tests {
 
     #[test]
     fn shrink_redistribute() {
-        let mut ts = TestState::new(thread_rng(), Box::new(|_| Status::Interesting), 10000);
+        let mut ts = TestState::new(thread_rng(), Box::new(|_| Ok(true)), 10000);
 
         ts.result = Some(vec![500, 500, 500, 500]);
         assert_eq!(ts.shrink_redistribute(&[500, 500], 1), Some(vec![0, 1000]));
@@ -723,12 +710,9 @@ mod tests {
 
     #[test]
     fn finds_small_list() {
-        fn sum_greater_1000(tc: &mut TestCase) -> Status {
-            let d = data::vectors(data::integers(0, 10000), 0, 1000);
-            match d.produce(tc) {
-                Ok(ls) => if ls.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
-                Err(_) => Status::Invalid
-            }
+        fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error> {
+            let ls = data::vectors(data::integers(0, 10000), 0, 1000).produce(tc)?;
+            Ok(ls.iter().sum::<i64>() > 1000)
         }
         
 
@@ -742,12 +726,9 @@ mod tests {
 
     #[test]
     fn finds_small_list_debug() {
-        fn sum_greater_1000(tc: &mut TestCase) -> Status {
-            let d = data::vectors(data::integers(0, 10000), 0, 1000);
-            match d.produce(tc) {
-                Ok(ls) => if ls.iter().sum::<i64>() > 1000 { Status::Interesting } else { Status::Valid },
-                Err(_) => Status::Invalid
-            }
+        fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error> {
+            let ls = data::vectors(data::integers(0, 10000), 0, 1000).produce(tc)?;
+            Ok(ls.iter().sum::<i64>() > 1000)
         }
         
         let d = data::vectors(data::integers(0, 10000), 0, 1000);
@@ -771,15 +752,9 @@ mod tests {
             }
         }
 
-        fn sum_greater_1000(tc: &mut TestCase) -> Status {
-            match BadList.produce(tc) {
-                Ok(ls) => if ls.iter().sum::<i64>() > 1000 {
-                    Status::Interesting 
-                } else {
-                    Status::Valid
-                },
-                Err(_) => {println!("Invalid!"); Status::Invalid}
-            }
+        fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error>{
+            let ls = BadList.produce(tc)?;
+            Ok(ls.iter().sum::<i64>() > 1000)
         }
 
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
@@ -789,16 +764,23 @@ mod tests {
 
     #[test]
     fn reduces_additive_pairs() {
-        fn sum_greater_1000(tc: &mut TestCase) -> Status {
-            if let (Ok(n), Ok(m)) = (tc.choice(1000), tc.choice(1000)) {
-                if m + n > 1000 { Status::Interesting } else { Status::Valid }
-            } else {
-                Status::Invalid
-            }
+        fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error> {
+            let n = tc.choice(1000)?;
+            let m = tc.choice(1000)?;
+            Ok( m+n > 1000)
         }
 
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
         ts.run();
         assert_eq!(ts.result, Some(vec![0, 1001]));
+    }
+
+    #[test]
+    fn test_cases_satisfy_preconditions() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let n = tc.choice(10)?;
+            tc.assume(n != 0);
+            Ok(n == 0)
+        }
     }
 }
