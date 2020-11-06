@@ -74,11 +74,11 @@ impl TestCase {
     }
 
     /// If this precondition is not met, abort the test and mark this test case as invalid
-    fn assume(&mut self, precondition: bool) -> Option<Error> {
+    fn assume(&mut self, precondition: bool) -> Result<(), Error> {
         if !precondition {
-            Some(self.reject())
+            Err(Error::Invalid)
         } else {
-            None
+            Ok(())
         }
     }
 
@@ -752,7 +752,7 @@ mod tests {
             }
         }
 
-        fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error>{
+        fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error> {
             let ls = BadList.produce(tc)?;
             Ok(ls.iter().sum::<i64>() > 1000)
         }
@@ -779,8 +779,105 @@ mod tests {
     fn test_cases_satisfy_preconditions() {
         fn test(tc: &mut TestCase) -> Result<bool, Error> {
             let n = tc.choice(10)?;
-            tc.assume(n != 0);
+            tc.assume(n != 0)?;
             Ok(n == 0)
         }
+
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert_eq!(ts.result, None);
+    }
+
+    // TODO: implement Unsatisfiable mechanism
+    // TODO: implement caching mechanism
+    // TODO: implement targeting
+    // TODO: check frozen
+    #[test]
+    fn mapped_possibility(){
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let n = data::integers(0, 5).map(|n| n*2).produce(tc)?;
+            Ok(n%2 != 0)
+        }
+
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert_eq!(ts.result, None);
+    }
+    
+    #[test]
+    fn selected_possibility(){
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let n = data::integers(0, 5).satisfying(|n| n%2==0).produce(tc)?;
+            Ok(n%2 != 0)
+        }
+
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert_eq!(ts.result, None);
+    }
+
+    // TODO: binding is still a bit opaque
+    
+    #[test]
+    fn cannot_witness_nothing(){
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let _ = data::nothing().produce(tc)?;
+            Ok(true)
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert_eq!(ts.result, None);
+    }
+
+    #[test]
+    fn can_draw_mixture(){
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let m = data::mix_of(data::integers(-5, 0), data::integers(2, 5)).produce(tc)?;
+            Ok(-5 > m || m > 5 || m == 1)
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert_eq!(ts.result, None);
+    }
+
+    #[test]
+    fn impossible_weighted() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            for _ in 0..10 {
+                if tc.weighted(0.0)? == 1 {
+                    assert!(false);
+                }
+            }
+            Ok(false)
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert_eq!(ts.result, None);
+    }
+
+    #[test]
+    fn guaranteed_weighted() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            for _ in 0..10 {
+                if tc.weighted(1.0)? == 0 {
+                    assert!(false);
+                }
+            }
+            Ok(false)
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert_eq!(ts.result, None);
+    }
+
+    #[test]
+    fn size_bounds_on_vectors() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let ls = data::vectors(data::integers(0, 10), 1, 3).produce(tc)?;
+            Ok(ls.len() < 1 || 3 < ls.len())
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert_eq!(ts.result, None);
     }
 }
