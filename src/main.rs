@@ -14,8 +14,6 @@ pub struct TestCase {
     random: ThreadRng,
     max_size: usize,
     choices: Vec<u64>,
-    status: Option<bool>,
-    depth: u64,
 }
 
 use crate::data::Possibility;
@@ -26,8 +24,6 @@ impl TestCase {
             random,
             max_size,
             choices: vec![],
-            status: None,
-            depth: 0,
         }
     }
 
@@ -37,8 +33,6 @@ impl TestCase {
             prefix,
             random: thread_rng(),
             choices: vec![],
-            status: None,
-            depth: 0,
         }
     }
 
@@ -719,13 +713,6 @@ mod tests {
         assert_eq!(ts.shrink_redistribute(&[500, 500, 500], 2), Some(vec![0, 500, 1000]));
     }
 
-    #[test]
-    fn produce_with_deterministic_test_case() {
-        // TODO: add more tests here
-        let d = data::vectors(data::integers(0, 10000), 0, 1000);
-        let mut tc = TestCase::for_choices(vec![1, 1001, 0]);
-        assert_eq!(d.produce(&mut tc).unwrap(), vec![1001]);
-    }
 
     #[test]
     fn finds_small_list() {
