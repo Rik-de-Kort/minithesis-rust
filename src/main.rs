@@ -447,18 +447,9 @@ impl TestState {
     fn shrink_reduce(&mut self, attempt: &[u64]) -> Option<Vec<u64>> {
         let mut new = attempt.to_owned();
         for i in (0..attempt.len()).rev() {
-            let mut low = 0;
-            let mut high = new[i];
-            while low + 1 < high {
-                let mid = low + (high - low) / 2;
-                new[i] = mid;
-                if self.consider(&new) {
-                    high = mid;
-                } else {
-                    low = mid;
-                }
+            if let Some(x) = bin_search_down(0, new[i], &mut |n| {new[i]=n; self.consider(&new)}) {
+                new[i] = x
             }
-            new[i] = high;
         }
         if new == attempt {
             None
@@ -466,6 +457,7 @@ impl TestState {
             Some(new)
         }
     }
+
 
     fn shrink_sort(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if k > attempt.len() {
@@ -494,13 +486,14 @@ impl TestState {
                 continue;
             }
             let mut new = attempt.to_owned();
-            // Swap
-            new[x] = attempt[y];
+
+            // We're swapping x and y, but also immediately reducing x.
             new[y] = attempt[x];
-            // For now use inefficient reducing algorithm to get it out.
-            match self.shrink_reduce(&new) {
-                Some(result) => return Some(result),
-                None => continue,
+            if let Some(i) = bin_search_down(0, attempt[y], &mut |n| {new[x]=n; self.consider(&new)}) {
+                new[x] = i;
+                return Some(new)
+            } else {
+                continue;
             }
         }
         None
@@ -611,6 +604,22 @@ impl TestState {
         }
     }
 }
+
+fn bin_search_down(mut low: u64, mut high: u64, p: &mut dyn FnMut(u64) -> bool) -> Option<u64> {
+    if p(low) { return Some(low); }
+    if !p(high) { return None; }
+
+    while low + 1 < high {
+        let mid = low + (high - low) / 2;
+        if p(mid) {
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+    Some(high)
+}
+
 
 fn example_test(tc: &mut TestCase) -> Result<bool, Error> {
     let ls = data::vectors(data::integers(95, 105), 9, 11).produce(tc)?;
