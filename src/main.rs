@@ -525,30 +525,15 @@ impl TestState {
             if attempt[x] == 0 {
                 continue;
             }
-            let redistribute = |mut new_: Vec<u64>, v| {
-                new_[x] = v;
-                new_[y] = attempt[x] + attempt[y] - v;
-                new_
-            };
 
-            let mut low = 0;
-            let mut high = attempt[x];
-
-            new = redistribute(new, low);
-            if self.consider(&new) {
-                return Some(new);
+            if let Some(v) = bin_search_down(0, attempt[x], &mut |n| {
+                new[x] = n;
+                new[y] = attempt[x] + attempt[y] - n;
+                self.consider(&new)
+            }) {
+                new[x] = v;
+                new[y] = attempt[x] + attempt[y] - v;
             }
-
-            while low + 1 < high {
-                let mid = low + (high - low) / 2;
-                new = redistribute(new, mid);
-                if self.consider(&new) {
-                    high = mid;
-                } else {
-                    low = mid;
-                }
-            }
-            new = redistribute(new, high);
         }
         if new == attempt {
             None
@@ -559,8 +544,7 @@ impl TestState {
 
     fn shrink(&mut self) {
         if let Some(data) = &self.result {
-            let result = data.clone();
-            let mut attempt = result;
+            let mut attempt = data.clone();
             let mut improved = true;
             while improved {
                 improved = false;
@@ -574,9 +558,7 @@ impl TestState {
                 }
 
                 // Replacing blocks by zeroes
-                // We *do* use length one here to avoid special casing in the
-                // binary search algorithm.
-                for k in &[8, 4, 2, 1] {
+                for k in &[8, 4, 2] {
                     while let Some(new) = self.shrink_zeroes(&attempt, *k) {
                         attempt = new;
                         improved = true;
@@ -589,6 +571,7 @@ impl TestState {
                     improved = true;
                 }
 
+                // Sort sublists
                 for k in &[8, 4, 2] {
                     while let Some(new) = self.shrink_sort(&attempt, *k) {
                         attempt = new;
@@ -596,6 +579,7 @@ impl TestState {
                     }
                 }
 
+                // Swap numbers distance k apart, and shrink the first one.
                 for k in &[2, 1] {
                     while let Some(new) = self.shrink_swap(&attempt, *k) {
                         attempt = new;
@@ -603,6 +587,7 @@ impl TestState {
                     }
                 }
 
+                // Redistribute values between nearby numbers
                 for k in &[2, 1] {
                     while let Some(new) = self.shrink_redistribute(&attempt, *k) {
                         attempt = new;
