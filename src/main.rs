@@ -230,6 +230,19 @@ mod data {
         }
     }
 
+    struct Pairs<U, T: Possibility<U>, V, S: Possibility<V>> {
+        first: T,
+        second: S,
+        phantom_u: PhantomData<U>,
+        phantom_v: PhantomData<V>,
+    }
+
+    impl<U, T: Possibility<U>, V, S: Possibility<V>> Possibility<(U, V)> for Pairs<U, T, V, S> {
+        fn produce(&self, tc: &mut TestCase) -> Result<(U, V), Error> {
+            Ok((self.first.produce(tc)?, self.second.produce(tc)?))
+        }
+    }
+
     pub struct Just<T: Clone> {
         value: T,
     }
