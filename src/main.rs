@@ -7,7 +7,6 @@ pub enum Error {
     Invalid,
 }
 
-
 #[derive(Debug)]
 pub struct TestCase {
     prefix: Vec<u64>,
@@ -145,7 +144,9 @@ mod data {
         phantom_u: PhantomData<U>,
         phantom_q: PhantomData<Q>,
     }
-    impl<T, U, F: Fn(T) -> Q, P: Possibility<T>, Q: Possibility<U>> Possibility<U> for Bind<T, U, F, P, Q> {
+    impl<T, U, F: Fn(T) -> Q, P: Possibility<T>, Q: Possibility<U>> Possibility<U>
+        for Bind<T, U, F, P, Q>
+    {
         fn produce(&self, tc: &mut TestCase) -> Result<U, Error> {
             let inner = self.source.produce(tc)?;
             (self.map)(inner).produce(tc)
@@ -234,13 +235,13 @@ mod data {
     impl<U, T: Possibility<U>, V, S: Possibility<V>> Pairs<U, T, V, S> {
         pub fn new(first: T, second: S) -> Pairs<U, T, V, S> {
             Pairs {
-                first, second,
+                first,
+                second,
                 phantom_u: PhantomData,
                 phantom_v: PhantomData,
             }
         }
     }
-
 
     impl<U, T: Possibility<U>, V, S: Possibility<V>> Possibility<(U, V)> for Pairs<U, T, V, S> {
         fn produce(&self, tc: &mut TestCase) -> Result<(U, V), Error> {
@@ -303,7 +304,10 @@ mod data {
         Integers::new(minimum, maximum)
     }
 
-    pub fn pairs<U, T: Possibility<U>, V, S: Possibility<V>>(first: T, second: S) -> Pairs<U, T, V, S> {
+    pub fn pairs<U, T: Possibility<U>, V, S: Possibility<V>>(
+        first: T,
+        second: S,
+    ) -> Pairs<U, T, V, S> {
         Pairs::new(first, second)
     }
 
@@ -317,7 +321,6 @@ mod data {
         MixOf::new(first, second)
     }
 }
-
 
 struct TestState {
     random: ThreadRng,
@@ -358,19 +361,22 @@ impl TestState {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
                 false
-            },
+            }
             Ok(true) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
 
-                if self.result == None || self.result.as_ref().unwrap().len() > test_case.choices.len() || *self.result.as_ref().unwrap() > test_case.choices {
+                if self.result == None
+                    || self.result.as_ref().unwrap().len() > test_case.choices.len()
+                    || *self.result.as_ref().unwrap() > test_case.choices
+                {
                     self.result = Some(test_case.choices.clone());
                     true
                 } else {
                     false
                 }
-            },
-            Err(_) => false
+            }
+            Err(_) => false,
         }
     }
 
@@ -408,10 +414,14 @@ impl TestState {
         }
 
         // Generate all valid removals (don't worry, it's lazy!)
-        let valid = (0..=attempt.len()-k).map(|j| (j, j+k)).rev();
+        let valid = (0..=attempt.len() - k).map(|j| (j, j + k)).rev();
         for (x, y) in valid {
             let head = &attempt[..x];
-            let tail = if y < attempt.len() { &attempt[y..] } else { &[] };
+            let tail = if y < attempt.len() {
+                &attempt[y..]
+            } else {
+                &[]
+            };
             let mut new = [head, tail].concat();
 
             if self.consider(&new) {
@@ -447,7 +457,10 @@ impl TestState {
     fn shrink_reduce(&mut self, attempt: &[u64]) -> Option<Vec<u64>> {
         let mut new = attempt.to_owned();
         for i in (0..attempt.len()).rev() {
-            if let Some(x) = bin_search_down(0, new[i], &mut |n| {new[i]=n; self.consider(&new)}) {
+            if let Some(x) = bin_search_down(0, new[i], &mut |n| {
+                new[i] = n;
+                self.consider(&new)
+            }) {
                 new[i] = x
             }
         }
@@ -457,7 +470,6 @@ impl TestState {
             Some(new)
         }
     }
-
 
     fn shrink_sort(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if k > attempt.len() {
@@ -489,9 +501,12 @@ impl TestState {
 
             // We're swapping x and y, but also immediately reducing x.
             new[y] = attempt[x];
-            if let Some(i) = bin_search_down(0, attempt[y], &mut |n| {new[x]=n; self.consider(&new)}) {
+            if let Some(i) = bin_search_down(0, attempt[y], &mut |n| {
+                new[x] = n;
+                self.consider(&new)
+            }) {
                 new[x] = i;
-                return Some(new)
+                return Some(new);
             } else {
                 continue;
             }
@@ -500,12 +515,12 @@ impl TestState {
     }
 
     fn shrink_redistribute(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
-        if attempt.len() < k { 
+        if attempt.len() < k {
             return None;
         }
 
         let mut new = attempt.to_owned();
-        let valid = (0..attempt.len()-k).map(|j| (j, j+k));
+        let valid = (0..attempt.len() - k).map(|j| (j, j + k));
         for (x, y) in valid {
             if attempt[x] == 0 {
                 continue;
@@ -524,8 +539,8 @@ impl TestState {
                 return Some(new);
             }
 
-            while low+1 < high {
-                let mid  = low + (high - low) / 2;
+            while low + 1 < high {
+                let mid = low + (high - low) / 2;
                 new = redistribute(new, mid);
                 if self.consider(&new) {
                     high = mid;
@@ -543,7 +558,6 @@ impl TestState {
     }
 
     fn shrink(&mut self) {
-
         if let Some(data) = &self.result {
             let result = data.clone();
             let mut attempt = result;
@@ -600,14 +614,17 @@ impl TestState {
                     println!("not improved, exiting, {:?}", attempt);
                 };
             }
-            self.result = Some(attempt);
         }
     }
 }
 
 fn bin_search_down(mut low: u64, mut high: u64, p: &mut dyn FnMut(u64) -> bool) -> Option<u64> {
-    if p(low) { return Some(low); }
-    if !p(high) { return None; }
+    if p(low) {
+        return Some(low);
+    }
+    if !p(high) {
+        return None;
+    }
 
     while low + 1 < high {
         let mid = low + (high - low) / 2;
@@ -620,7 +637,6 @@ fn bin_search_down(mut low: u64, mut high: u64, p: &mut dyn FnMut(u64) -> bool) 
     Some(high)
 }
 
-
 fn example_test(tc: &mut TestCase) -> Result<bool, Error> {
     let ls = data::vectors(data::integers(95, 105), 9, 11).produce(tc)?;
     Ok(ls.iter().sum::<i64>() > 1000)
@@ -632,7 +648,6 @@ fn main() {
     ts.run();
     println!("Test result {:?}", ts.result);
 }
-
 
 mod tests {
     use super::*;
@@ -649,7 +664,6 @@ mod tests {
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
         assert!(ts.test_function(&mut tc));
         assert_eq!(ts.result, Some(vec![]));
-
 
         let mut tc = TestCase::new(vec![1, 2, 3, 4], thread_rng(), 10000);
         assert!(!ts.test_function(&mut tc));
@@ -677,7 +691,7 @@ mod tests {
         assert!(!ts.test_function(&mut tc));
         assert_eq!(ts.result, None);
     }
-    
+
     #[test]
     fn shrink_remove() {
         let mut ts = TestState::new(thread_rng(), Box::new(|_| Ok(true)), 10000);
@@ -698,14 +712,16 @@ mod tests {
         ts.result = Some(vec![1, 2, 5, 4, 5]);
         assert_eq!(ts.shrink_remove(&[1, 2, 5, 4, 5], 2), Some(vec![1, 2, 5]));
 
-
         fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error> {
             let ls = data::vectors(data::integers(0, 10000), 0, 1000).produce(tc)?;
             Ok(ls.iter().sum::<i64>() > 1000)
         }
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
         ts.result = Some(vec![1, 10000, 1, 10000]);
-        assert_eq!(ts.shrink_remove(&[1, 0, 1, 1001, 0], 2), Some(vec![1, 1001, 0]));
+        assert_eq!(
+            ts.shrink_remove(&[1, 0, 1, 1001, 0], 2),
+            Some(vec![1, 1001, 0])
+        );
 
         ts.result = Some(vec![1, 10000, 1, 10000]);
         assert_eq!(ts.shrink_remove(&[1, 0, 1, 1001, 0], 1), None);
@@ -719,9 +735,11 @@ mod tests {
         assert_eq!(ts.shrink_redistribute(&[500, 500], 1), Some(vec![0, 1000]));
 
         ts.result = Some(vec![500, 500, 500, 500]);
-        assert_eq!(ts.shrink_redistribute(&[500, 500, 500], 2), Some(vec![0, 500, 1000]));
+        assert_eq!(
+            ts.shrink_redistribute(&[500, 500, 500], 2),
+            Some(vec![0, 500, 1000])
+        );
     }
-
 
     #[test]
     fn finds_small_list() {
@@ -729,7 +747,6 @@ mod tests {
             let ls = data::vectors(data::integers(0, 10000), 0, 1000).produce(tc)?;
             Ok(ls.iter().sum::<i64>() > 1000)
         }
-        
 
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
         ts.run();
@@ -737,22 +754,23 @@ mod tests {
         assert_eq!(ts.result, Some(vec![1, 1001, 0]));
     }
 
-
     #[test]
     fn finds_small_list_debug() {
         fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error> {
             let ls = data::vectors(data::integers(0, 10000), 0, 1000).produce(tc)?;
             Ok(ls.iter().sum::<i64>() > 1000)
         }
-        
+
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
         ts.result = Some(vec![1, 0, 1, 1001, 0]);
         // This buggy case came about due to the fact that rust compares vecs element by element.
         // assert!(vec![1, 1001, 0] < vec![1, 0, 1, 1001, 0]);
-        assert_eq!(ts.shrink_remove(&[1, 0, 1, 1001, 0], 2), Some(vec![1, 1001, 0]));
+        assert_eq!(
+            ts.shrink_remove(&[1, 0, 1, 1001, 0], 2),
+            Some(vec![1, 1001, 0])
+        );
         assert_eq!(ts.result, Some(vec![1, 1001, 0]));
     }
-
 
     #[test]
     fn finds_small_list_even_with_bad_lists() {
@@ -760,7 +778,9 @@ mod tests {
         impl Possibility<Vec<i64>> for BadList {
             fn produce(&self, tc: &mut TestCase) -> Result<Vec<i64>, Error> {
                 let n = tc.choice(10)?;
-                let result = (0..n).map(|_| {tc.choice(10000)}).collect::<Result<Vec<u64>, Error>>()?;
+                let result = (0..n)
+                    .map(|_| tc.choice(10000))
+                    .collect::<Result<Vec<u64>, Error>>()?;
                 Ok(result.iter().map(|i| *i as i64).collect())
             }
         }
@@ -780,7 +800,7 @@ mod tests {
         fn sum_greater_1000(tc: &mut TestCase) -> Result<bool, Error> {
             let n = tc.choice(1000)?;
             let m = tc.choice(1000)?;
-            Ok( m+n > 1000)
+            Ok(m + n > 1000)
         }
 
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
@@ -806,22 +826,24 @@ mod tests {
     // TODO: implement targeting
     // TODO: check frozen
     #[test]
-    fn mapped_possibility(){
+    fn mapped_possibility() {
         fn test(tc: &mut TestCase) -> Result<bool, Error> {
-            let n = data::integers(0, 5).map(|n| n*2).produce(tc)?;
-            Ok(n%2 != 0)
+            let n = data::integers(0, 5).map(|n| n * 2).produce(tc)?;
+            Ok(n % 2 != 0)
         }
 
         let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
         ts.run();
         assert_eq!(ts.result, None);
     }
-    
+
     #[test]
-    fn selected_possibility(){
+    fn selected_possibility() {
         fn test(tc: &mut TestCase) -> Result<bool, Error> {
-            let n = data::integers(0, 5).satisfying(|n| n%2==0).produce(tc)?;
-            Ok(n%2 != 0)
+            let n = data::integers(0, 5)
+                .satisfying(|n| n % 2 == 0)
+                .produce(tc)?;
+            Ok(n % 2 != 0)
         }
 
         let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
@@ -832,16 +854,18 @@ mod tests {
     #[test]
     fn bound_possibility() {
         fn test(tc: &mut TestCase) -> Result<bool, Error> {
-            let t = data::integers(0, 5).bind(|m| data::pairs(data::just(m), data::integers(m, m+10))).produce(tc)?;
-            Ok(t.1 < t.0 || t.0 +10 < t.1)
+            let t = data::integers(0, 5)
+                .bind(|m| data::pairs(data::just(m), data::integers(m, m + 10)))
+                .produce(tc)?;
+            Ok(t.1 < t.0 || t.0 + 10 < t.1)
         }
         let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
         ts.run();
         assert_eq!(ts.result, None);
     }
-    
+
     #[test]
-    fn cannot_witness_nothing(){
+    fn cannot_witness_nothing() {
         fn test(tc: &mut TestCase) -> Result<bool, Error> {
             let _ = data::nothing().produce(tc)?;
             Ok(true)
@@ -852,7 +876,7 @@ mod tests {
     }
 
     #[test]
-    fn can_draw_mixture(){
+    fn can_draw_mixture() {
         fn test(tc: &mut TestCase) -> Result<bool, Error> {
             let m = data::mix_of(data::integers(-5, 0), data::integers(2, 5)).produce(tc)?;
             Ok(-5 > m || m > 5 || m == 1)
