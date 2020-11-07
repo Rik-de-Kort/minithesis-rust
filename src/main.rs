@@ -151,7 +151,7 @@ mod data {
         phantom_u: PhantomData<U>,
         phantom_q: PhantomData<Q>,
     }
-    impl<T, U, F: Fn(T) -> Q, P: Possibility<T>, Q: Possibility<U>> Bind<T, U, F, P, Q> {
+    impl<T, U, F: Fn(T) -> Q, P: Possibility<T>, Q: Possibility<U>> Possibility<U> for Bind<T, U, F, P, Q> {
         fn produce(&self, tc: &mut TestCase) -> Result<U, Error> {
             let inner = self.source.produce(tc)?;
             (self.map)(inner).produce(tc)
@@ -230,12 +230,23 @@ mod data {
         }
     }
 
-    struct Pairs<U, T: Possibility<U>, V, S: Possibility<V>> {
+    pub struct Pairs<U, T: Possibility<U>, V, S: Possibility<V>> {
         first: T,
         second: S,
         phantom_u: PhantomData<U>,
         phantom_v: PhantomData<V>,
     }
+
+    impl<U, T: Possibility<U>, V, S: Possibility<V>> Pairs<U, T, V, S> {
+        pub fn new(first: T, second: S) -> Pairs<U, T, V, S> {
+            Pairs {
+                first, second,
+                phantom_u: PhantomData,
+                phantom_v: PhantomData,
+            }
+        }
+    }
+
 
     impl<U, T: Possibility<U>, V, S: Possibility<V>> Possibility<(U, V)> for Pairs<U, T, V, S> {
         fn produce(&self, tc: &mut TestCase) -> Result<(U, V), Error> {
@@ -296,6 +307,10 @@ mod data {
 
     pub fn integers(minimum: i64, maximum: i64) -> Integers {
         Integers::new(minimum, maximum)
+    }
+
+    pub fn pairs<U, T: Possibility<U>, V, S: Possibility<V>>(first: T, second: S) -> Pairs<U, T, V, S> {
+        Pairs::new(first, second)
     }
 
     pub fn just<T: Clone>(value: T) -> Just<T> {
@@ -829,7 +844,16 @@ mod tests {
         assert_eq!(ts.result, None);
     }
 
-    // TODO: binding is still a bit opaque
+    #[test]
+    fn bound_possibility() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let t = data::integers(0, 5).bind(|m| data::pairs(data::just(m), data::integers(m, m+10))).produce(tc)?;
+            Ok(t.1 < t.0 || t.0 +10 < t.1)
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert_eq!(ts.result, None);
+    }
     
     #[test]
     fn cannot_witness_nothing(){
