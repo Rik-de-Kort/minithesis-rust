@@ -380,15 +380,6 @@ impl TestState {
         }
     }
 
-    fn result_as<T>(&self, p: impl Possibility<T>) -> Option<T> {
-        if let Some(choices) = &self.result {
-            // TODO: proper error handling
-            Some(p.produce(&mut TestCase::for_choices(choices.to_vec())).unwrap())
-        } else {
-            None
-        }
-    }
-
     fn run(&mut self) {
         self.generate();
         self.shrink();
@@ -747,8 +738,7 @@ mod tests {
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
         ts.run();
 
-        let d = data::vectors(data::integers(0, 10000), 0, 1000);
-        assert_eq!(ts.result_as(d).unwrap(), vec![1001]);
+        assert_eq!(ts.result, Some(vec![1, 1001, 0]));
     }
 
 
@@ -759,13 +749,12 @@ mod tests {
             Ok(ls.iter().sum::<i64>() > 1000)
         }
         
-        let d = data::vectors(data::integers(0, 10000), 0, 1000);
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
         ts.result = Some(vec![1, 0, 1, 1001, 0]);
         // This buggy case came about due to the fact that rust compares vecs element by element.
         // assert!(vec![1, 1001, 0] < vec![1, 0, 1, 1001, 0]);
         assert_eq!(ts.shrink_remove(&[1, 0, 1, 1001, 0], 2), Some(vec![1, 1001, 0]));
-        assert_eq!(ts.result_as(d).unwrap(), vec![1001]);
+        assert_eq!(ts.result, Some(vec![1, 1001, 0]));
     }
 
 
@@ -787,7 +776,7 @@ mod tests {
 
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
         ts.run();
-        assert_eq!(ts.result_as(BadList), Some(vec![1001]));
+        assert_eq!(ts.result, Some(vec![1, 1001]));
     }
 
     #[test]
