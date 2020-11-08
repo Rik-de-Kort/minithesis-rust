@@ -13,6 +13,7 @@ pub struct TestCase {
     random: ThreadRng,
     max_size: usize,
     choices: Vec<u64>,
+    targeting_score: Option<f64>,
 }
 
 use crate::data::Possibility;
@@ -23,6 +24,7 @@ impl TestCase {
             random,
             max_size,
             choices: vec![],
+            targeting_score: None,
         }
     }
 
@@ -32,6 +34,7 @@ impl TestCase {
             prefix,
             random: thread_rng(),
             choices: vec![],
+            targeting_score: None,
         }
     }
 
@@ -83,6 +86,18 @@ impl TestCase {
             let result = self.random.gen_range(0, n + 1);
             self.forced_choice(result)
         }
+    }
+
+    /// Add a score to target. Put an expression here!
+    /// If called more than one
+    fn target(&mut self, score: f64) {
+        if self.targeting_score != None {
+            println!(
+                "TestCase::target called twice on test case object {:?}. Overwriting score.",
+                self
+            );
+        }
+        self.targeting_score = Some(score);
     }
 }
 
@@ -329,7 +344,7 @@ struct TestState {
     valid_test_cases: usize,
     calls: usize,
     result: Option<Vec<u64>>,
-    best_scoring: Option<Vec<u64>>, // Todo: check type
+    best_scoring: Option<(f64, Vec<u64>)>,
     test_is_trivial: bool,
 }
 
@@ -353,6 +368,19 @@ impl TestState {
         }
     }
 
+    fn update_target(&mut self, test_case: &TestCase) -> bool {
+        if let Some(score) = test_case.targeting_score {
+            if self.best_scoring == None || self.best_scoring.as_ref().unwrap().0 > score {
+                self.best_scoring = Some((score, test_case.choices.clone()));
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     fn test_function(&mut self, mut test_case: &mut TestCase) -> bool {
         self.calls += 1;
 
@@ -360,11 +388,14 @@ impl TestState {
             Ok(false) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
+                self.update_target(test_case);
+
                 false
             }
             Ok(true) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
+                self.update_target(test_case);
 
                 if self.result == None
                     || self.result.as_ref().unwrap().len() > test_case.choices.len()
@@ -380,8 +411,66 @@ impl TestState {
         }
     }
 
+    fn target(&mut self) {
+        if self.result == None {
+            return;
+        }
+
+        if let Some((_, choices)) = self.best_scoring.clone() {
+            while self.should_keep_generating() {
+                let mut new = choices.clone();
+                let i = self.random.gen_range(0, new.len());
+
+                // Can we climb up?
+                new[i] = choices[i] + 1;
+                if self.update_target(&TestCase::for_choices(new.clone())) {
+                    let mut k = 1;
+                    while self.should_keep_generating()
+                        && self.update_target(&TestCase::for_choices(new.clone()))
+                    {
+                        new[i] += k;
+                        k *= 2;
+                    }
+                    while k > 0 {
+                        while self.should_keep_generating()
+                            && self.update_target(&TestCase::for_choices(new.clone()))
+                        {
+                            new[i] += k;
+                        }
+                        k /= 2;
+                    }
+                }
+
+                // Or should we climb down?
+                new[i] = choices[i] - 1;
+                if self.update_target(&TestCase::for_choices(new.clone())) {
+                    let mut k = 1;
+                    while self.should_keep_generating()
+                        && self.update_target(&TestCase::for_choices(new.clone()))
+                    {
+                        new[i] -= k;
+                        if k * 2 > new[i] {
+                            break;
+                        } else {
+                            k *= 2;
+                        }
+                    }
+                    while k > 0 {
+                        while self.should_keep_generating()
+                            && self.update_target(&TestCase::for_choices(new.clone()))
+                        {
+                            new[i] -= k;
+                        }
+                        k /= 2;
+                    }
+                }
+            }
+        }
+    }
+
     fn run(&mut self) {
         self.generate();
+        self.target();
         self.shrink();
     }
 
@@ -401,7 +490,7 @@ impl TestState {
     }
 
     fn consider(&mut self, choices: &[u64]) -> bool {
-        if Some(choices.to_vec()) == self.result {
+        if Some(choices) == self.result.as_deref() {
             true
         } else {
             self.test_function(&mut TestCase::for_choices(choices.to_vec()))
@@ -808,7 +897,36 @@ mod tests {
 
     // TODO: implement Unsatisfiable mechanism
     // TODO: implement caching mechanism
-    // TODO: implement targeting
+
+    // Note: cannot reproduce max_examples_is_not_exceeded because no globals
+    #[test]
+    fn finds_local_maximum() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let m = tc.choice(1000)? as f64;
+            let n = tc.choice(1000)? as f64;
+            let score = -((m - 500.0).powf(2.0) + (n - 500.0).powf(2.0));
+            tc.target(score);
+            Ok(m == 500.0 || n == 500.0)
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert!(ts.result.is_some());
+    }
+
+    #[test] // TODO this test fails
+    fn can_target_score_upwards_to_interesting() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let n = tc.choice(1001)? as f64;
+            let m = tc.choice(1001)? as f64;
+            let score = n + m;
+            tc.target(score);
+            Ok(score >= 2000.0)
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        ts.run();
+        assert!(ts.result.is_some());
+    }
+
     // TODO: check frozen
     #[test]
     fn mapped_possibility() {
