@@ -370,7 +370,7 @@ impl TestState {
 
     fn update_target(&mut self, test_case: &TestCase) -> bool {
         if let Some(score) = test_case.targeting_score {
-            if self.best_scoring == None || self.best_scoring.as_ref().unwrap().0 > score {
+            if self.best_scoring == None || self.best_scoring.as_ref().unwrap().0 < score {
                 self.best_scoring = Some((score, test_case.choices.clone()));
                 true
             } else {
@@ -411,29 +411,51 @@ impl TestState {
         }
     }
 
+    fn run_and_check_if_updated_target(&mut self, test_case: &mut TestCase) -> bool {
+        if let Some((score, _)) = self.best_scoring {
+            self.test_function(test_case);
+            if let Some((score_new, _)) = self.best_scoring {
+                score_new > score
+            } else {
+                panic!("best_scoring should remain set when set once!");
+            }
+        } else {
+            self.test_function(test_case);
+            self.best_scoring.is_some()
+        }
+    }
+
     fn target(&mut self) {
-        if self.result == None {
+        if self.result != None {
             return;
         }
 
-        if let Some((_, choices)) = self.best_scoring.clone() {
+        if let Some((score, choices)) = self.best_scoring.clone() {
             while self.should_keep_generating() {
+                // It may happen that choices is all zeroes, and that targeting upwards
+                // doesn't do anything. In this case, the loop will run until max_examples
+                // is exhausted.
                 let mut new = choices.clone();
                 let i = self.random.gen_range(0, new.len());
 
                 // Can we climb up?
                 new[i] = choices[i] + 1;
-                if self.update_target(&TestCase::for_choices(new.clone())) {
+                if self.run_and_check_if_updated_target(&mut TestCase::for_choices(new.clone())) {
                     let mut k = 1;
+                    new[i] += k;
                     while self.should_keep_generating()
-                        && self.update_target(&TestCase::for_choices(new.clone()))
+                        && self.run_and_check_if_updated_target(&mut TestCase::for_choices(
+                            new.clone(),
+                        ))
                     {
-                        new[i] += k;
                         k *= 2;
+                        new[i] += k;
                     }
                     while k > 0 {
                         while self.should_keep_generating()
-                            && self.update_target(&TestCase::for_choices(new.clone()))
+                            && self.run_and_check_if_updated_target(&mut TestCase::for_choices(
+                                new.clone(),
+                            ))
                         {
                             new[i] += k;
                         }
@@ -442,24 +464,45 @@ impl TestState {
                 }
 
                 // Or should we climb down?
-                new[i] = choices[i] - 1;
-                if self.update_target(&TestCase::for_choices(new.clone())) {
+                new[i] = if let Some(n) = choices[i].checked_sub(1) {
+                    n
+                } else {
+                    continue;
+                };
+                let mut tc = TestCase::for_choices(new.clone());
+                if (self.is_interesting)(&mut tc).is_err() {
+                    continue;
+                }
+                if self.run_and_check_if_updated_target(&mut TestCase::for_choices(new.clone())) {
                     let mut k = 1;
+                    new[i] = if let Some(n) = new[i].checked_sub(k) {
+                        n
+                    } else {
+                        continue;
+                    };
                     while self.should_keep_generating()
-                        && self.update_target(&TestCase::for_choices(new.clone()))
+                        && self.run_and_check_if_updated_target(&mut TestCase::for_choices(
+                            new.clone(),
+                        ))
                     {
-                        new[i] -= k;
-                        if k * 2 > new[i] {
-                            break;
+                        new[i] = if let Some(n) = new[i].checked_sub(k) {
+                            n
                         } else {
-                            k *= 2;
-                        }
+                            break;
+                        };
+                        k *= 2;
                     }
                     while k > 0 {
                         while self.should_keep_generating()
-                            && self.update_target(&TestCase::for_choices(new.clone()))
+                            && self.run_and_check_if_updated_target(&mut TestCase::for_choices(
+                                new.clone(),
+                            ))
                         {
-                            new[i] -= k;
+                            new[i] = if let Some(n) = new[i].checked_sub(k) {
+                                n
+                            } else {
+                                break;
+                            };
                         }
                         k /= 2;
                     }
@@ -713,14 +756,21 @@ fn bin_search_down(mut low: u64, mut high: u64, p: &mut dyn FnMut(u64) -> bool) 
 
 fn example_test(tc: &mut TestCase) -> Result<bool, Error> {
     let ls = data::vectors(data::integers(95, 105), 9, 11).produce(tc)?;
+    tc.target(ls[0] as f64);
     Ok(ls.iter().sum::<i64>() > 1000)
 }
 
 fn main() {
-    let mut ts = TestState::new(thread_rng(), Box::new(example_test), 10);
-    let db_ = database::DirectoryBasedExampleDatabase::new(".minithesis-db");
+    fn test(tc: &mut TestCase) -> Result<bool, Error> {
+        let n = tc.choice(1001)? as f64;
+        let m = tc.choice(1001)? as f64;
+        let score = n + m;
+        tc.target(score);
+        Ok(score >= 2000.0)
+    }
+    let mut ts = TestState::new(thread_rng(), Box::new(test), 1000);
     ts.run();
-    println!("Test result {:?}", ts.result);
+    assert!(ts.result.is_some());
 }
 
 mod tests {
@@ -922,7 +972,7 @@ mod tests {
             tc.target(score);
             Ok(score >= 2000.0)
         }
-        let mut ts = TestState::new(thread_rng(), Box::new(test), 10000);
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 1000);
         ts.run();
         assert!(ts.result.is_some());
     }
