@@ -81,7 +81,12 @@ impl TestCase {
     /// Return an integer in the range [0, n]
     fn choice(&mut self, n: u64) -> Result<u64, Error> {
         if self.choices.len() < self.prefix.len() {
-            self.forced_choice(self.prefix[self.choices.len()])
+            let preordained = self.prefix[self.choices.len()];
+            if preordained > n {
+                Err(Error::Invalid)
+            } else {
+                self.forced_choice(self.prefix[self.choices.len()])
+            }
         } else {
             let result = self.random.gen_range(0, n + 1);
             self.forced_choice(result)
@@ -381,48 +386,37 @@ impl TestState {
         }
     }
 
-    fn test_function(&mut self, mut test_case: &mut TestCase) -> bool {
+    // This is a new variant of test_function which also returns whether or not the
+    // test case was better than the previous best scoring one!
+    fn test_function(&mut self, test_case: &mut TestCase) -> (bool, bool) {
         self.calls += 1;
-
-        match (self.is_interesting)(&mut test_case) {
+        match (self.is_interesting)(test_case) {
             Ok(false) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
-                self.update_target(test_case);
-
-                false
+                (false, self.update_target(test_case))
             }
             Ok(true) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
-                self.update_target(test_case);
 
                 if self.result == None
                     || self.result.as_ref().unwrap().len() > test_case.choices.len()
                     || *self.result.as_ref().unwrap() > test_case.choices
                 {
                     self.result = Some(test_case.choices.clone());
-                    true
+                    (true, self.update_target(test_case))
                 } else {
-                    false
+                    (false, self.update_target(test_case))
                 }
             }
-            Err(_) => false,
+            Err(_) => (false, false),
         }
     }
 
-    fn run_and_check_if_updated_target(&mut self, test_case: &mut TestCase) -> bool {
-        if let Some((score, _)) = self.best_scoring {
-            self.test_function(test_case);
-            if let Some((score_new, _)) = self.best_scoring {
-                score_new > score
-            } else {
-                panic!("best_scoring should remain set when set once!");
-            }
-        } else {
-            self.test_function(test_case);
-            self.best_scoring.is_some()
-        }
+    fn adjust(&mut self, attempt: &[u64]) -> bool {
+        let result = self.test_function(&mut TestCase::for_choices(attempt.to_owned()));
+        result.1
     }
 
     fn target(&mut self) {
@@ -430,33 +424,33 @@ impl TestState {
             return;
         }
 
-        if let Some((score, choices)) = self.best_scoring.clone() {
+        if self.best_scoring.is_some() {
             while self.should_keep_generating() {
                 // It may happen that choices is all zeroes, and that targeting upwards
                 // doesn't do anything. In this case, the loop will run until max_examples
                 // is exhausted.
-                let mut new = choices.clone();
+
+                // Could really use destructuring assignment here...
+                let mut new = if let Some((_, choices)) = &self.best_scoring {
+                    choices.clone()
+                } else {
+                    unreachable!()
+                };
                 let i = self.random.gen_range(0, new.len());
 
                 // Can we climb up?
-                new[i] = choices[i] + 1;
-                if self.run_and_check_if_updated_target(&mut TestCase::for_choices(new.clone())) {
+                new[i] += 1;
+                if self.adjust(&new) {
                     let mut k = 1;
                     new[i] += k;
-                    while self.should_keep_generating()
-                        && self.run_and_check_if_updated_target(&mut TestCase::for_choices(
-                            new.clone(),
-                        ))
-                    {
+                    let mut res = self.adjust(&new);
+                    while self.should_keep_generating() && res {
                         k *= 2;
                         new[i] += k;
+                        res = self.adjust(&new);
                     }
                     while k > 0 {
-                        while self.should_keep_generating()
-                            && self.run_and_check_if_updated_target(&mut TestCase::for_choices(
-                                new.clone(),
-                            ))
-                        {
+                        while self.should_keep_generating() && self.adjust(&new) {
                             new[i] += k;
                         }
                         k /= 2;
@@ -464,45 +458,30 @@ impl TestState {
                 }
 
                 // Or should we climb down?
-                new[i] = if let Some(n) = choices[i].checked_sub(1) {
-                    n
-                } else {
-                    continue;
-                };
-                let mut tc = TestCase::for_choices(new.clone());
-                if (self.is_interesting)(&mut tc).is_err() {
+                if new[i] < 1 {
                     continue;
                 }
-                if self.run_and_check_if_updated_target(&mut TestCase::for_choices(new.clone())) {
+                new[i] -= 1;
+                if self.adjust(&new) {
                     let mut k = 1;
-                    new[i] = if let Some(n) = new[i].checked_sub(k) {
-                        n
-                    } else {
+                    if new[i] < k {
                         continue;
-                    };
-                    while self.should_keep_generating()
-                        && self.run_and_check_if_updated_target(&mut TestCase::for_choices(
-                            new.clone(),
-                        ))
-                    {
-                        new[i] = if let Some(n) = new[i].checked_sub(k) {
-                            n
-                        } else {
+                    }
+                    new[i] -= k;
+
+                    while self.should_keep_generating() && self.adjust(&new) {
+                        if new[i] < k {
                             break;
-                        };
+                        }
+                        new[i] -= k;
                         k *= 2;
                     }
                     while k > 0 {
-                        while self.should_keep_generating()
-                            && self.run_and_check_if_updated_target(&mut TestCase::for_choices(
-                                new.clone(),
-                            ))
-                        {
-                            new[i] = if let Some(n) = new[i].checked_sub(k) {
-                                n
-                            } else {
+                        while self.should_keep_generating() && self.adjust(&new) {
+                            if new[i] < k {
                                 break;
-                            };
+                            }
+                            new[i] -= k;
                         }
                         k /= 2;
                     }
@@ -537,6 +516,7 @@ impl TestState {
             true
         } else {
             self.test_function(&mut TestCase::for_choices(choices.to_vec()))
+                .0
         }
     }
 
@@ -781,16 +761,16 @@ mod tests {
         let mut ts = TestState::new(thread_rng(), Box::new(|_| Ok(true)), 10000);
 
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
-        assert!(ts.test_function(&mut tc));
+        assert!(ts.test_function(&mut tc).0);
         assert_eq!(ts.result, Some(vec![]));
 
         ts.result = Some(vec![1, 2, 3, 4]);
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
-        assert!(ts.test_function(&mut tc));
+        assert!(ts.test_function(&mut tc).0);
         assert_eq!(ts.result, Some(vec![]));
 
         let mut tc = TestCase::new(vec![1, 2, 3, 4], thread_rng(), 10000);
-        assert!(!ts.test_function(&mut tc));
+        assert!(!ts.test_function(&mut tc).0);
         assert_eq!(ts.result, Some(vec![]));
     }
 
@@ -799,7 +779,7 @@ mod tests {
         let mut ts = TestState::new(thread_rng(), Box::new(|_| Ok(false)), 10000);
 
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
-        assert!(!ts.test_function(&mut tc));
+        assert!(!ts.test_function(&mut tc).0);
         assert_eq!(ts.result, None);
 
         ts.result = Some(vec![1, 2, 3, 4]);
@@ -812,7 +792,7 @@ mod tests {
         let mut ts = TestState::new(thread_rng(), Box::new(|_| Err(Error::Invalid)), 10000);
 
         let mut tc = TestCase::new((&[]).to_vec(), thread_rng(), 10000);
-        assert!(!ts.test_function(&mut tc));
+        assert!(!ts.test_function(&mut tc).0);
         assert_eq!(ts.result, None);
     }
 
@@ -929,7 +909,7 @@ mod tests {
 
         let mut ts = TestState::new(thread_rng(), Box::new(sum_greater_1000), 10000);
         ts.run();
-        assert_eq!(ts.result, Some(vec![0, 1001]));
+        assert_eq!(ts.result, Some(vec![1, 1000]));
     }
 
     #[test]
@@ -963,11 +943,11 @@ mod tests {
         assert!(ts.result.is_some());
     }
 
-    #[test] // TODO this test fails
+    #[test] // TODO: this can yield overflow error
     fn can_target_score_upwards_to_interesting() {
         fn test(tc: &mut TestCase) -> Result<bool, Error> {
-            let n = tc.choice(1001)? as f64;
-            let m = tc.choice(1001)? as f64;
+            let n = tc.choice(1000)? as f64;
+            let m = tc.choice(1000)? as f64;
             let score = n + m;
             tc.target(score);
             Ok(score >= 2000.0)
@@ -975,6 +955,25 @@ mod tests {
         let mut ts = TestState::new(thread_rng(), Box::new(test), 1000);
         ts.run();
         assert!(ts.result.is_some());
+    }
+
+    #[test]
+    fn can_target_score_upwards_without_failing() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let n = tc.choice(1000)? as f64;
+            let m = tc.choice(1000)? as f64;
+            let score = n + m;
+            tc.target(score);
+            Ok(false)
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 1000);
+        ts.run();
+        assert!(ts.result.is_none());
+        if let Some((score, _)) = ts.best_scoring {
+            assert_eq!(score, 2000.0);
+        } else {
+            assert!(false, "best scoring not filled")
+        }
     }
 
     // TODO: check frozen
