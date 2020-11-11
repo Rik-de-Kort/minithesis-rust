@@ -416,6 +416,7 @@ impl TestState {
 
     fn adjust(&mut self, attempt: &[u64]) -> bool {
         let result = self.test_function(&mut TestCase::for_choices(attempt.to_owned()));
+        println!("attempt {:?}, result {:?}", attempt, result);
         result.1
     }
 
@@ -430,6 +431,7 @@ impl TestState {
                 // doesn't do anything. In this case, the loop will run until max_examples
                 // is exhausted.
 
+                // Can we climb up?
                 // Could really use destructuring assignment here...
                 let mut new = if let Some((_, choices)) = &self.best_scoring {
                     choices.clone()
@@ -438,7 +440,7 @@ impl TestState {
                 };
                 let i = self.random.gen_range(0, new.len());
 
-                // Can we climb up?
+                println!("Current choices {:?}", new);
                 new[i] += 1;
                 if self.adjust(&new) {
                     let mut k = 1;
@@ -458,6 +460,11 @@ impl TestState {
                 }
 
                 // Or should we climb down?
+                let mut new = if let Some((_, choices)) = &self.best_scoring {
+                    choices.clone()
+                } else {
+                    unreachable!()
+                };
                 if new[i] < 1 {
                     continue;
                 }
@@ -969,11 +976,38 @@ mod tests {
         let mut ts = TestState::new(thread_rng(), Box::new(test), 1000);
         ts.run();
         assert!(ts.result.is_none());
-        if let Some((score, _)) = ts.best_scoring {
-            assert_eq!(score, 2000.0);
-        } else {
-            assert!(false, "best scoring not filled")
+        assert!(ts.best_scoring.is_some());
+        assert_eq!(ts.best_scoring.as_ref().unwrap().0, 2000.0);
+    }
+
+    #[test]
+    fn targeting_when_most_dont_benefit() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            tc.choice(1000)?;
+            tc.choice(1000)?;
+            let score = tc.choice(10000)?;
+            tc.target(score as f64);
+            Ok(score >= 10000)
         }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 1000);
+        ts.run();
+        assert!(ts.result.is_some());
+    }
+
+    #[test]
+    fn can_target_score_downwards() {
+        fn test(tc: &mut TestCase) -> Result<bool, Error> {
+            let n = tc.choice(1000)? as f64;
+            let m = tc.choice(1000)? as f64;
+            let score = n + m;
+            tc.target(-score);
+            Ok(score <= 0.0)
+        }
+        let mut ts = TestState::new(thread_rng(), Box::new(test), 1000);
+        ts.run();
+        assert!(ts.result.is_some());
+        assert!(ts.best_scoring.is_some());
+        assert_eq!(ts.best_scoring.as_ref().unwrap().0, 0.0);
     }
 
     // TODO: check frozen
