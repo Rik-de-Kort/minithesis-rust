@@ -373,42 +373,54 @@ impl TestState {
         }
     }
 
-    fn update_target(&mut self, test_case: &TestCase) -> bool {
-        if let Some(score) = test_case.targeting_score {
-            if self.best_scoring == None || self.best_scoring.as_ref().unwrap().0 < score {
-                self.best_scoring = Some((score, test_case.choices.clone()));
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    }
-
-    // This is a new variant of test_function which also returns whether or not the
-    // test case was better than the previous best scoring one!
+    // The main responsibility of this function is to check whether a given
+    // test case is interesting. It also includes targeting functionality.
+    // The reason for this is that targeting is done with the express purpose
+    // of finding an interesting test_case.
+    // We do duplicate code here, but it makes for easier reading, and it fits
+    // one one screen.
     fn test_function(&mut self, test_case: &mut TestCase) -> (bool, bool) {
         self.calls += 1;
         match (self.is_interesting)(test_case) {
             Ok(false) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
-                (false, self.update_target(test_case))
+
+                let mut was_better = false;
+                // Check for target improvement
+                if let Some(score) = test_case.targeting_score {
+                    if self.best_scoring == None || self.best_scoring.as_ref().unwrap().0 < score {
+                        self.best_scoring = Some((score, test_case.choices.clone()));
+                        was_better = true;
+                    }
+                }
+
+                (false, was_better)
             }
             Ok(true) => {
                 self.test_is_trivial = test_case.choices.is_empty();
                 self.valid_test_cases += 1;
 
+                // Check for interestingness
+                let mut was_more_interesting = false;
                 if self.result == None
                     || self.result.as_ref().unwrap().len() > test_case.choices.len()
                     || *self.result.as_ref().unwrap() > test_case.choices
                 {
                     self.result = Some(test_case.choices.clone());
-                    (true, self.update_target(test_case))
-                } else {
-                    (false, self.update_target(test_case))
+                    was_more_interesting = true;
                 }
+
+                // Check for target improvement
+                let mut was_better = false;
+                if let Some(score) = test_case.targeting_score {
+                    if self.best_scoring == None || self.best_scoring.as_ref().unwrap().0 < score {
+                        self.best_scoring = Some((score, test_case.choices.clone()));
+                        was_better = true;
+                    }
+                }
+
+                (was_more_interesting, was_better)
             }
             Err(_) => (false, false),
         }
