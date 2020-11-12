@@ -428,7 +428,6 @@ impl TestState {
 
     fn adjust(&mut self, attempt: &[u64]) -> bool {
         let result = self.test_function(&mut TestCase::for_choices(attempt.to_owned()));
-        println!("attempt {:?}, result {:?}", attempt, result);
         result.1
     }
 
@@ -452,7 +451,6 @@ impl TestState {
                 };
                 let i = self.random.gen_range(0, new.len());
 
-                println!("Current choices {:?}", new);
                 new[i] += 1;
                 if self.adjust(&new) {
                     let mut k = 1;
@@ -725,10 +723,6 @@ impl TestState {
                         improved = true;
                     }
                 }
-
-                if !improved {
-                    println!("not improved, exiting, {:?}", attempt);
-                };
             }
         }
     }
