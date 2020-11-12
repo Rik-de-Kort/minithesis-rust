@@ -377,8 +377,8 @@ impl TestState {
     // test case is interesting. It also includes targeting functionality.
     // The reason for this is that targeting is done with the express purpose
     // of finding an interesting test_case.
-    // We do duplicate code here, but it makes for easier reading, and it fits
-    // one one screen.
+    // We do duplicate code for targeting here, but it makes for easier reading,
+    // fits on one screen, and is not that complex to begin with.
     fn test_function(&mut self, test_case: &mut TestCase) -> (bool, bool) {
         self.calls += 1;
         match (self.is_interesting)(test_case) {
@@ -442,8 +442,11 @@ impl TestState {
                 // doesn't do anything. In this case, the loop will run until max_examples
                 // is exhausted.
 
-                // Can we climb up?
                 // Could really use destructuring assignment here...
+                // The reason we use if-let at the top instead is that this would
+                // not take into account updated versions we encounter as we climb
+                // up the hill.
+                // Can we climb up?
                 let mut new = if let Some((_, choices)) = &self.best_scoring {
                     choices.clone()
                 } else {
@@ -470,6 +473,8 @@ impl TestState {
                 }
 
                 // Or should we climb down?
+                // This code is rather duplicated, but I don't see a good way to unduplicate
+                // it without also bringing over all the bounds checking. Maybe `checked_add`?
                 let mut new = if let Some((_, choices)) = &self.best_scoring {
                     choices.clone()
                 } else {
@@ -507,6 +512,7 @@ impl TestState {
         }
     }
 
+    /// Main test runner: insrtantiate a TestState and then use this to run.
     fn run(&mut self) {
         self.generate();
         self.target();
@@ -532,8 +538,7 @@ impl TestState {
         if Some(choices) == self.result.as_deref() {
             true
         } else {
-            self.test_function(&mut TestCase::for_choices(choices.to_vec()))
-                .0
+            self.test_function(&mut TestCase::for_choices(choices.to_vec())).0
         }
     }
 
