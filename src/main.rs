@@ -85,7 +85,7 @@ impl TestCase {
             if preordained > n {
                 Err(Error::Invalid)
             } else {
-                self.forced_choice(self.prefix[self.choices.len()])
+                self.forced_choice(preordained)
             }
         } else {
             let result = self.random.gen_range(0, n + 1);
@@ -512,7 +512,7 @@ impl TestState {
         }
     }
 
-    /// Main test runner: insrtantiate a TestState and then use this to run.
+    /// Main test runner: instantiate a TestState and then use this to run.
     fn run(&mut self) {
         self.generate();
         self.target();
@@ -538,7 +538,8 @@ impl TestState {
         if Some(choices) == self.result.as_deref() {
             true
         } else {
-            self.test_function(&mut TestCase::for_choices(choices.to_vec())).0
+            self.test_function(&mut TestCase::for_choices(choices.to_vec()))
+                .0
         }
     }
 
