@@ -80,8 +80,8 @@ impl TestCase {
     }
 
     /// Mark this test case as invalid
-    fn reject(&mut self) -> Error {
-        Error::Invalid
+    fn reject<T>(&mut self) -> Result<T, Error> {
+        Err(Error::Invalid)
     }
 
     /// If this precondition is not met, abort the test and mark this test case as invalid
@@ -186,7 +186,7 @@ mod data {
                     return Ok(candidate);
                 }
             }
-            Err(tc.reject())
+            tc.reject()
         }
     }
 
@@ -282,7 +282,7 @@ mod data {
     pub struct Nothing {}
     impl<T> Possibility<T> for Nothing {
         fn produce(&self, tc: &mut TestCase) -> Result<T, Error> {
-            Err(tc.reject())
+            tc.reject()
         }
     }
 
