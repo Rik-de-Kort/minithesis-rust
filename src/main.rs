@@ -61,7 +61,6 @@ impl TestCase {
         } else {
             let result = self.random.gen_bool(p) as u64;
             Ok(self.forced_choice(result)? == 1)
-
         }
     }
 
@@ -95,7 +94,6 @@ impl TestCase {
     }
 
     /// Add a score to target. Put an expression here!
-    /// If called more than one
     fn target(&mut self, score: f64) {
         if self.targeting_score != None {
             println!(
@@ -427,6 +425,21 @@ impl TestState {
         }
     }
 
+    /// Main test runner: instantiate a TestState and then use this to run.
+    fn run(&mut self) {
+        self.generate();
+        self.target();
+        self.shrink();
+    }
+
+    fn should_keep_generating(&self) -> bool {
+        (!self.test_is_trivial)
+            & (self.result == None)
+            & (self.valid_test_cases < self.max_examples)
+            & (self.calls < self.max_examples * 10)
+    }
+
+    /// Helper for targeting
     fn adjust(&mut self, attempt: &[u64]) -> bool {
         let result = self.test_function(&mut TestCase::for_choices(attempt.to_owned()));
         result.1
@@ -513,20 +526,6 @@ impl TestState {
         }
     }
 
-    /// Main test runner: instantiate a TestState and then use this to run.
-    fn run(&mut self) {
-        self.generate();
-        self.target();
-        self.shrink();
-    }
-
-    fn should_keep_generating(&self) -> bool {
-        (!self.test_is_trivial)
-            & (self.result == None)
-            & (self.valid_test_cases < self.max_examples)
-            & (self.calls < self.max_examples * 10)
-    }
-
     fn generate(&mut self) {
         while self.should_keep_generating()
             & ((self.best_scoring == None) || self.valid_test_cases <= self.max_examples / 2)
@@ -535,6 +534,7 @@ impl TestState {
         }
     }
 
+    /// Helper for shrinking
     fn consider(&mut self, choices: &[u64]) -> bool {
         if Some(choices) == self.result.as_deref() {
             true
@@ -544,6 +544,7 @@ impl TestState {
         }
     }
 
+    /// Try to shrink `attempt` by removing `k` elements at a time.
     fn shrink_remove(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if k > attempt.len() {
             return None;
@@ -573,6 +574,7 @@ impl TestState {
         None
     }
 
+    /// Try to shrink `attempt` by setting `k` elements at a time to zero.
     fn shrink_zeroes(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if k > attempt.len() {
             return None;
@@ -590,6 +592,7 @@ impl TestState {
         None
     }
 
+    /// Try to shrink `attempt` by making the elements smaller.
     fn shrink_reduce(&mut self, attempt: &[u64]) -> Option<Vec<u64>> {
         let mut new = attempt.to_owned();
         for i in (0..attempt.len()).rev() {
@@ -607,6 +610,7 @@ impl TestState {
         }
     }
 
+    /// Try to shrink `attempt` by sorting `k` contiguous elements at a time.
     fn shrink_sort(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if k > attempt.len() {
             return None;
@@ -627,6 +631,7 @@ impl TestState {
         None
     }
 
+    /// Try to shrink `attempt` by swapping two elements length `k` apart.
     fn shrink_swap(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         let valid = (k..attempt.len() - 1).map(|j| (j - k, j)).rev();
         for (x, y) in valid {
@@ -650,6 +655,7 @@ impl TestState {
         None
     }
 
+    /// Try to shrink `attempt` by redistributing value between two elements length `k` apart.
     fn shrink_redistribute(&mut self, attempt: &[u64], k: usize) -> Option<Vec<u64>> {
         if attempt.len() < k {
             return None;
@@ -678,6 +684,7 @@ impl TestState {
         }
     }
 
+    /// After having found an interesting test case, we try to shrink it.
     fn shrink(&mut self) {
         if let Some(data) = &self.result {
             let mut attempt = data.clone();
@@ -735,6 +742,7 @@ impl TestState {
     }
 }
 
+/// Helper function to implement binary search.
 fn bin_search_down(mut low: u64, mut high: u64, p: &mut dyn FnMut(u64) -> bool) -> Option<u64> {
     if p(low) {
         return Some(low);
@@ -752,12 +760,6 @@ fn bin_search_down(mut low: u64, mut high: u64, p: &mut dyn FnMut(u64) -> bool) 
         }
     }
     Some(high)
-}
-
-fn example_test(tc: &mut TestCase) -> Result<bool, Error> {
-    let ls = data::vectors(data::integers(95, 105), 9, 11).produce(tc)?;
-    tc.target(ls[0] as f64);
-    Ok(ls.iter().sum::<i64>() > 1000)
 }
 
 fn main() {
