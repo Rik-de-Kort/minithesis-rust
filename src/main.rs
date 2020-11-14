@@ -50,18 +50,18 @@ impl TestCase {
     }
 
     /// Return 1 with probability p, 0 otherwise.
-    fn weighted(&mut self, p: f64) -> Result<u64, Error> {
-        if self.choices.len() < self.prefix.len() {
-            if self.prefix[self.choices.len()] > 1 {
-                Err(Error::Invalid)
+    fn weighted(&mut self, p: f64) -> Result<bool, Error> {
+        let result = if self.choices.len() < self.prefix.len() {
+            let preordained = self.prefix[self.choices.len()];
+            if preordained > 1 {
+                return Err(Error::Invalid);
             } else {
-                self.forced_choice(self.prefix[self.choices.len()])
+                preordained
             }
-        } else if self.random.gen_bool(p) {
-            self.forced_choice(1)
         } else {
-            self.forced_choice(0)
-        }
+            self.random.gen_bool(p) as u64
+        };
+        Ok(self.forced_choice(result)? == 1)
     }
 
     /// Mark this test case as invalid
@@ -236,7 +236,7 @@ mod data {
                 } else if result.len() + 1 >= self.max_size {
                     tc.forced_choice(0)?;
                     break;
-                } else if tc.weighted(0.9)? == 0 {
+                } else if !tc.weighted(0.9)? {
                     break;
                 }
                 result.push(self.elements.produce(tc)?);
@@ -1088,7 +1088,7 @@ mod tests {
     fn impossible_weighted() {
         fn test(tc: &mut TestCase) -> Result<bool, Error> {
             for _ in 0..10 {
-                if tc.weighted(0.0)? == 1 {
+                if tc.weighted(0.0)? {
                     assert!(false);
                 }
             }
@@ -1103,7 +1103,7 @@ mod tests {
     fn guaranteed_weighted() {
         fn test(tc: &mut TestCase) -> Result<bool, Error> {
             for _ in 0..10 {
-                if tc.weighted(1.0)? == 0 {
+                if !tc.weighted(1.0)? {
                     assert!(false);
                 }
             }
