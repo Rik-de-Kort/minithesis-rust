@@ -64,20 +64,6 @@ impl TestCase {
         Ok(self.forced_choice(result)? == 1)
     }
 
-    /// Mark this test case as invalid
-    fn reject(&mut self) -> Error {
-        Error::Invalid
-    }
-
-    /// If this precondition is not met, abort the test and mark this test case as invalid
-    fn assume(&mut self, precondition: bool) -> Result<(), Error> {
-        if !precondition {
-            Err(Error::Invalid)
-        } else {
-            Ok(())
-        }
-    }
-
     /// Return an integer in the range [0, n]
     fn choice(&mut self, n: u64) -> Result<u64, Error> {
         if self.choices.len() < self.prefix.len() {
@@ -90,6 +76,20 @@ impl TestCase {
         } else {
             let result = self.random.gen_range(0, n + 1);
             self.forced_choice(result)
+        }
+    }
+
+    /// Mark this test case as invalid
+    fn reject(&mut self) -> Error {
+        Error::Invalid
+    }
+
+    /// If this precondition is not met, abort the test and mark this test case as invalid
+    fn assume(&mut self, precondition: bool) -> Result<(), Error> {
+        if !precondition {
+            Err(Error::Invalid)
+        } else {
+            Ok(())
         }
     }
 
