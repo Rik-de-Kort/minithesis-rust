@@ -51,17 +51,18 @@ impl TestCase {
 
     /// Return 1 with probability p, 0 otherwise.
     fn weighted(&mut self, p: f64) -> Result<bool, Error> {
-        let result = if self.choices.len() < self.prefix.len() {
+        if self.choices.len() < self.prefix.len() {
             let preordained = self.prefix[self.choices.len()];
             if preordained > 1 {
                 return Err(Error::Invalid);
             } else {
-                preordained
+                Ok(self.forced_choice(preordained)? == 1)
             }
         } else {
-            self.random.gen_bool(p) as u64
-        };
-        Ok(self.forced_choice(result)? == 1)
+            let result = self.random.gen_bool(p) as u64;
+            Ok(self.forced_choice(result)? == 1)
+
+        }
     }
 
     /// Return an integer in the range [0, n]
